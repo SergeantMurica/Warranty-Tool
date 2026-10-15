@@ -17,12 +17,17 @@
             id="authName"
             type="text"
             autocomplete="name"
-            placeholder="e.g. Parker"
+            placeholder="e.g. Alex"
           />
         </label>
         <label class="field">
           <span>Email</span>
-          <input id="authEmail" type="email" autocomplete="username" />
+          <input
+            id="authEmail"
+            type="email"
+            autocomplete="email"
+            placeholder="Use MetaPCs email"
+          />
         </label>
         <label class="field">
           <span>Password</span>
@@ -30,6 +35,7 @@
             id="authPass"
             type="password"
             autocomplete="current-password"
+            placeholder="Enter your 6 character password"
           />
         </label>
         <p class="error" id="authError" role="alert" hidden></p>
@@ -85,7 +91,7 @@
         <div class="row">
           <label class="field">
             <span>Customer <em>optional</em></span>
-            <input id="name" type="text" placeholder="e.g. Parker Smith" />
+            <input id="name" type="text" placeholder="e.g. John Smith" />
           </label>
           <label class="field">
             <span>System price <em>optional</em></span>
@@ -108,8 +114,6 @@
           <button type="submit" class="primary">Log contact</button>
         </div>
       </form>
-
-      <p class="hint" id="scriptHint" role="status" hidden></p>
 
       <section class="log">
         <div class="tabs" id="tabs" role="tablist" aria-label="Filter"></div>

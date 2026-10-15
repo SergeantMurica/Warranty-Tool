@@ -99,9 +99,6 @@ async function copyScript(customer, button, systemPrice = els.total.value) {
   const missing = !Number.isFinite(
     parseFloat(String(systemPrice).replace(/[^0-9.]/g, "")),
   );
-  els.scriptHint.textContent =
-    "No system price entered, so prices were left as {2 year} / {3 year}. Custom builds: fill them in by hand.";
-  els.scriptHint.hidden = !missing;
 }
 
 let auth = null;
@@ -507,12 +504,6 @@ for (const input of [els.phone, els.order, els.name, els.systemPrice]) {
   });
 }
 els.search.addEventListener("input", render);
-els.copyScript.addEventListener("click", () =>
-  copyScript(els.name.value, els.copyScript),
-);
-els.total.addEventListener("input", () => {
-  els.scriptHint.hidden = true;
-});
 
 els.clear.addEventListener("click", () => {
   els.form.reset();
