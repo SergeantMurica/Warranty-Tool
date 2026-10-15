@@ -22,6 +22,7 @@ const els = {
   authEmail: $("authEmail"), authPass: $("authPass"), authError: $("authError"),
   authToggle: $("authToggle"), authSubmit: $("authSubmit"), signOut: $("signOut"),
   form: $("form"), phone: $("phone"), order: $("order"), name: $("name"),
+  systemPrice: $("systemPrice"),
   hint: $("hint"), error: $("error"), clear: $("clear"),
   tabs: $("tabs"), search: $("search"), list: $("list"), empty: $("empty"),
   count: $("count"), export: $("export"),
@@ -35,8 +36,8 @@ const PRICES = {
 };
 const priceFor = (years, total) => PRICES[years].find(([max]) => total <= max)[1];
 
-function buildScript(customer) {
-  const total = parseFloat(String(els.total.value).replace(/[^0-9.]/g, ""));
+function buildScript(customer, systemPrice = els.total.value) {
+  const total = parseFloat(String(systemPrice).replace(/[^0-9.]/g, ""));
   const known = Number.isFinite(total);
   const two = known ? `$${priceFor(2, total)}` : "{2 year}";
   const three = known ? `$${priceFor(3, total)}` : "{3 year}";
@@ -51,18 +52,19 @@ Your build already comes with lifetime phone & email support on us. The extended
 Can only add it before it leaves our doors. Would you like to add either of those options on?`;
 }
 
-async function copyScript(customer, button) {
-  await navigator.clipboard.writeText(buildScript(customer));
+async function copyScript(customer, button, systemPrice = els.total.value) {
+  await navigator.clipboard.writeText(buildScript(customer, systemPrice));
   const label = button.textContent;
   button.textContent = label === "✉" ? "✓" : "Copied";
   setTimeout(() => { button.textContent = label; }, 900);
-  const missing = !/\d/.test(els.total.value);
-  els.scriptHint.textContent = "No order total entered, so prices were left as {2 year} / {3 year}. Custom builds: fill them in by hand.";
+  const missing = !Number.isFinite(parseFloat(String(systemPrice).replace(/[^0-9.]/g, "")));
+  els.scriptHint.textContent = "No system price entered, so prices were left as {2 year} / {3 year}. Custom builds: fill them in by hand.";
   els.scriptHint.hidden = !missing;
 }
 
 let auth = null;
-let entries = [];
+let entries = []; // every record, including hidden ones (used for duplicate checks)
+const listed = () => entries.filter((e) => !e.hidden);
 let filter = "all";
 let signUpMode = false;
 let editing = false;
@@ -139,8 +141,13 @@ chrome.storage.onChanged.addListener((c, area) => {
 
 // ---------- draft ----------
 function saveDraft() {
-  const draft = { phone: els.phone.value, order: els.order.value, name: els.name.value };
-  const hasAny = draft.phone || draft.order || draft.name;
+  const draft = {
+    phone: els.phone.value,
+    order: els.order.value,
+    name: els.name.value,
+    systemPrice: els.systemPrice.value,
+  };
+  const hasAny = draft.phone || draft.order || draft.name || draft.systemPrice;
   els.clear.hidden = !hasAny;
   if (hasAny) chrome.storage.local.set({ [DRAFT_KEY]: draft });
   else chrome.storage.local.remove(DRAFT_KEY);
@@ -168,9 +175,10 @@ function updateHint() {
 
 // ---------- render ----------
 function renderTabs() {
-  const mine = entries.filter((e) => e.uid === auth?.uid).length;
-  const counts = { all: entries.length, mine };
-  for (const s of STATUSES) counts[s] = entries.filter((e) => e.status === s).length;
+  const visible = listed();
+  const mine = visible.filter((e) => e.uid === auth?.uid).length;
+  const counts = { all: visible.length, mine };
+  for (const s of STATUSES) counts[s] = visible.filter((e) => e.status === s).length;
   const defs = [["all", "All"], ["mine", "Mine"], ...STATUSES.map((s) => [s, STATUS_LABEL[s]])];
   els.tabs.replaceChildren();
   for (const [key, label] of defs) {
@@ -211,7 +219,8 @@ function render() {
   editing = false;
   const q = els.search.value.trim().toLowerCase();
   const qd = digits(q);
-  const shown = entries
+  const visible = listed();
+  const shown = visible
     .filter((e) => filter === "all" || (filter === "mine" ? e.uid === auth?.uid : e.status === filter))
     .filter((e) =>
       !q ||
@@ -222,11 +231,11 @@ function render() {
     )
     .sort((a, b) => b.ts - a.ts);
 
-  els.count.textContent = `${entries.length} logged`;
+  els.count.textContent = `${visible.length} logged`;
   renderTabs();
   els.list.replaceChildren();
   els.empty.hidden = shown.length > 0;
-  els.empty.textContent = entries.length ? "No matches." : "Nothing logged yet. Log the first order above.";
+  els.empty.textContent = visible.length ? "No matches." : "Nothing logged yet. Log the first order above.";
 
   let lastDay = null;
   for (const e of shown) {
@@ -253,6 +262,11 @@ function render() {
     by.textContent = e.by;
     meta.append(by);
     if (e.customer) { const s = document.createElement("span"); s.textContent = e.customer; meta.append(s); }
+    if (e.systemPrice) {
+      const price = document.createElement("span");
+      price.textContent = `$${Number(e.systemPrice).toLocaleString()}`;
+      meta.append(price);
+    }
     if (e.phone) meta.append(copyButton(e.phone, prettyPhone(e.phone)));
     const t = document.createElement("span");
     t.textContent = fmtTime(e.ts);
@@ -285,7 +299,7 @@ function render() {
     del.title = "Remove";
     del.setAttribute("aria-label", `Remove ${e.order}`);
     del.addEventListener("click", async () => {
-      if (!confirm(`Remove ${e.order} from the shared log?`)) return;
+      if (!confirm(`Remove ${e.order} from the list? It stays on record so the order still shows as contacted on Shopify.`)) return;
       const r = await send("remove", { id: e.id });
       if (!r.ok) showError(els.error, r.error);
     });
@@ -294,7 +308,7 @@ function render() {
     edit.type = "button";
     edit.className = "del";
     edit.textContent = "✎";
-    edit.title = "Add or edit name and phone";
+    edit.title = "Edit customer, phone and system price";
     edit.setAttribute("aria-label", `Edit details for ${e.order}`);
     edit.addEventListener("click", () => {
       const form = document.createElement("div");
@@ -307,6 +321,13 @@ function render() {
       phoneIn.type = "tel";
       phoneIn.placeholder = "Phone";
       phoneIn.value = e.phone;
+      const priceIn = document.createElement("input");
+      priceIn.type = "number";
+      priceIn.min = "0";
+      priceIn.step = "0.01";
+      priceIn.inputMode = "decimal";
+      priceIn.placeholder = "System price";
+      priceIn.value = e.systemPrice || "";
       const save = document.createElement("button");
       save.type = "button";
       save.className = "primary";
@@ -322,15 +343,16 @@ function render() {
           id: e.id,
           customer: nameIn.value,
           phone: phoneIn.value.trim() ? prettyPhone(phoneIn.value) : "",
+          systemPrice: priceIn.value,
         });
         if (!r.ok) { save.disabled = false; showError(els.error, r.error); return; }
         closeEdit();
       };
       save.addEventListener("click", submit);
-      for (const i of [nameIn, phoneIn]) {
+      for (const i of [nameIn, phoneIn, priceIn]) {
         i.addEventListener("keydown", (k) => { if (k.key === "Enter") submit(); else if (k.key === "Escape") closeEdit(); });
       }
-      form.append(nameIn, phoneIn, save, cancel);
+      form.append(nameIn, phoneIn, priceIn, save, cancel);
       row.append(form);
       edit.disabled = true;
       editing = true;
@@ -343,7 +365,7 @@ function render() {
     script.textContent = "✉";
     script.title = "Copy text script";
     script.setAttribute("aria-label", `Copy text script for ${e.order}`);
-    script.addEventListener("click", () => copyScript(e.customer, script));
+    script.addEventListener("click", () => copyScript(e.customer, script, e.systemPrice));
 
     side.append(chip, script, edit, del);
     row.append(title, meta, side);
@@ -352,7 +374,7 @@ function render() {
 }
 
 // ---------- events ----------
-for (const input of [els.phone, els.order, els.name]) {
+for (const input of [els.phone, els.order, els.name, els.systemPrice]) {
   input.addEventListener("input", () => { showError(els.error, ""); updateHint(); saveDraft(); });
 }
 els.search.addEventListener("input", render);
@@ -380,6 +402,7 @@ els.form.addEventListener("submit", async (ev) => {
     order: els.order.value.trim(),
     phone: els.phone.value.trim() ? prettyPhone(els.phone.value) : "",
     customer: els.name.value.trim(),
+    systemPrice: els.systemPrice.value.trim(),
     status: "texted",
   });
   if (!r.ok) { showError(els.error, r.error); return; }
@@ -391,10 +414,11 @@ els.form.addEventListener("submit", async (ev) => {
 });
 
 els.export.addEventListener("click", () => {
-  if (!entries.length) return;
+  const exported = listed();
+  if (!exported.length) return;
   const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const rows = [["Order", "Phone", "Customer", "Status", "Contacted by", "Date"]].concat(
-    entries.map((e) => [e.order, e.phone, e.customer, STATUS_LABEL[e.status], e.by, new Date(e.ts).toISOString()])
+  const rows = [["Order", "Phone", "Customer", "System price", "Status", "Contacted by", "Date"]].concat(
+    exported.map((e) => [e.order, e.phone, e.customer, e.systemPrice, STATUS_LABEL[e.status], e.by, new Date(e.ts).toISOString()])
   );
   const blob = new Blob([rows.map((r) => r.map(esc).join(",")).join("\n")], { type: "text/csv" });
   const a = document.createElement("a");
@@ -436,7 +460,8 @@ for (const s of themeSelects) s.addEventListener("change", () => applyTheme(s.va
   els.phone.value = draft.phone || "";
   els.order.value = draft.order || "";
   els.name.value = draft.name || "";
-  els.clear.hidden = !(draft.phone || draft.order || draft.name);
+  els.systemPrice.value = draft.systemPrice || "";
+  els.clear.hidden = !(draft.phone || draft.order || draft.name || draft.systemPrice);
   await load();
   (auth ? els.order : els.authEmail).focus();
   if (auth) send("refresh");

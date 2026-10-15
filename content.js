@@ -99,7 +99,6 @@
     for (const s of Object.keys(LABEL)) {
       if (!c || c.status !== s) add(c ? `Mark ${LABEL[s]}` : `Log as ${LABEL[s]}`, () => act(order, s));
     }
-    if (c) add("Remove", async () => { closeMenu(); await send("remove", { id: orderKey(order) }); });
     document.body.append(menu);
     const r = ev.currentTarget.getBoundingClientRect();
     menu.style.top = `${Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8)}px`;

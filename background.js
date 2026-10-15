@@ -114,10 +114,12 @@ function decode(doc) {
     order: s("order"),
     phone: s("phone"),
     customer: s("customer"),
+    systemPrice: s("systemPrice"),
     note: s("note"),
     status: s("status") || "texted",
     by: s("by"),
     uid: s("uid"),
+    hidden: f.hidden?.booleanValue === true,
     ts: Number(f.ts?.integerValue || 0),
   };
 }
@@ -126,8 +128,10 @@ function encode(c) {
   const str = (v) => ({ stringValue: String(v || "") });
   return {
     fields: {
-      order: str(c.order), phone: str(c.phone), customer: str(c.customer), note: str(c.note),
+      order: str(c.order), phone: str(c.phone), customer: str(c.customer),
+      systemPrice: str(c.systemPrice), note: str(c.note),
       status: str(c.status), by: str(c.by), uid: str(c.uid),
+      hidden: { booleanValue: !!c.hidden },
       ts: { integerValue: String(c.ts) },
     },
   };
@@ -163,23 +167,33 @@ async function upsert(input) {
   const status = STATUSES.includes(input.status) ? input.status : "texted";
   const contact = {
     id, order: String(input.order).trim(), phone: input.phone || "", customer: input.customer || "",
+    systemPrice: String(input.systemPrice || "").trim(),
     note: input.note || "", status, by: a.name, uid: a.uid, ts: Date.now(),
   };
   await api(`${DOCS()}/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(encode(contact)) });
   await patchCache((items) => { items[id] = contact; });
 }
 
-async function updateDetails({ id, phone, customer }) {
+async function updateDetails({ id, phone, customer, systemPrice }) {
   const cur = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY]?.items?.[id];
   if (!cur) throw new Error("Order not found. Refresh and try again.");
-  const contact = { ...cur, phone: String(phone || "").trim(), customer: String(customer || "").trim() };
+  const contact = {
+    ...cur,
+    phone: String(phone || "").trim(),
+    customer: String(customer || "").trim(),
+    systemPrice: String(systemPrice || "").trim(),
+  };
   await api(`${DOCS()}/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(encode(contact)) });
   await patchCache((items) => { items[id] = contact; });
 }
 
+// Soft delete: the record stays so the order still shows as contacted on Shopify.
 async function remove(id) {
-  await api(`${DOCS()}/${encodeURIComponent(id)}`, { method: "DELETE" });
-  await patchCache((items) => { delete items[id]; });
+  const cur = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY]?.items?.[id];
+  if (!cur) throw new Error("Order not found. Refresh and try again.");
+  const contact = { ...cur, hidden: true };
+  await api(`${DOCS()}/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(encode(contact)) });
+  await patchCache((items) => { items[id] = contact; });
 }
 
 // ---------- messaging / polling ----------

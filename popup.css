@@ -82,6 +82,15 @@ input:focus-visible {
   justify-content: space-between;
   margin-bottom: 10px;
 }
+.brand-logo-container {
+  width: 19px;
+  height: 19px;
+}
+.brand-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
 h1 {
   margin: 0;
   font-size: 17px;
