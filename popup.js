@@ -87,7 +87,7 @@ function buildScript(customer, systemPrice = els.total.value) {
   const first = String(customer || "")
     .trim()
     .split(/\s+/)[0];
-  return `Hello ${first || "there"}! This is ${auth?.name || "{Employee Name}"} from META PCs, one quick message before your window is expired.
+  return `Hello ${first || "there"}! This is ${capitalizeName(auth?.name) || "{Employee Name}"} from META PCs, one quick message before your window is expired.
 
 Your build already comes with lifetime phone & email support on us. The extended warranty covers the hardware if something breaks, our US-based repair team fixes or replaces it, no questions asked.
 
@@ -138,6 +138,10 @@ const prettyPhone = (s) => {
     ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
     : (s || "").trim();
 };
+const capitalizeName = (name) =>
+  String(name || "").replace(/(^|[\s'-])(\p{L})/gu, (_, separator, letter) =>
+    separator + letter.toLocaleUpperCase(),
+  );
 const fmtDate = (ts) =>
   new Date(ts).toLocaleDateString(undefined, {
     month: "short",
@@ -183,7 +187,8 @@ els.authForm.addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const email = els.authEmail.value.trim();
   const password = els.authPass.value;
-  const name = els.authName.value.trim();
+  const name = capitalizeName(els.authName.value.trim());
+  els.authName.value = name;
   if (!email || !password || (signUpMode && !name)) {
     showError(
       els.authError,
@@ -203,11 +208,21 @@ els.authForm.addEventListener("submit", async (ev) => {
   if (!r.ok) showError(els.authError, r.error);
 });
 els.signOut.addEventListener("click", () => send("signOut"));
+els.authName.addEventListener("blur", () => {
+  els.authName.value = capitalizeName(els.authName.value);
+});
 
 // ---------- state ----------
 async function load() {
   const d = await chrome.storage.local.get([AUTH_KEY, CACHE_KEY]);
   auth = d[AUTH_KEY] || null;
+  if (auth?.name) {
+    const name = capitalizeName(auth.name);
+    if (auth.name !== name) {
+      auth = { ...auth, name };
+      await chrome.storage.local.set({ [AUTH_KEY]: auth });
+    }
+  }
   entries = Object.values(d[CACHE_KEY]?.items || {});
   els.authView.hidden = !!auth;
   els.mainView.hidden = !auth;
@@ -254,11 +269,11 @@ function updateHint() {
   const msgs = [];
   if (byOrder)
     msgs.push(
-      `${byOrder.by} already contacted this order on ${fmtDate(byOrder.ts)}.`,
+      `${capitalizeName(byOrder.by)} already contacted this order on ${fmtDate(byOrder.ts)}.`,
     );
   if (byPhone)
     msgs.push(
-      `${byPhone.by} contacted this number (${byPhone.order}) on ${fmtDate(byPhone.ts)}.`,
+      `${capitalizeName(byPhone.by)} contacted this number (${byPhone.order}) on ${fmtDate(byPhone.ts)}.`,
     );
   els.hint.textContent = msgs.join(" ");
   els.hint.hidden = msgs.length === 0;
@@ -368,7 +383,7 @@ function render() {
     meta.className = "meta";
     const by = document.createElement("span");
     by.className = "by";
-    by.textContent = e.by;
+    by.textContent = capitalizeName(e.by);
     meta.append(by);
     if (e.customer) {
       const s = document.createElement("span");
@@ -438,6 +453,9 @@ function render() {
       nameIn.type = "text";
       nameIn.placeholder = "Customer name";
       nameIn.value = e.customer;
+      nameIn.addEventListener("blur", () => {
+        nameIn.value = capitalizeName(nameIn.value);
+      });
       const phoneIn = document.createElement("input");
       phoneIn.type = "tel";
       phoneIn.placeholder = "Phone";
@@ -462,7 +480,7 @@ function render() {
         save.disabled = true;
         const r = await send("updateDetails", {
           id: e.id,
-          customer: nameIn.value,
+          customer: capitalizeName(nameIn.value.trim()),
           phone: phoneIn.value.trim() ? prettyPhone(phoneIn.value) : "",
           systemPrice: priceIn.value,
         });
@@ -511,6 +529,10 @@ for (const input of [els.phone, els.order, els.name, els.systemPrice]) {
     saveDraft();
   });
 }
+els.name.addEventListener("blur", () => {
+  els.name.value = capitalizeName(els.name.value);
+  saveDraft();
+});
 els.search.addEventListener("input", render);
 
 els.clear.addEventListener("click", () => {
@@ -531,7 +553,7 @@ els.form.addEventListener("submit", async (ev) => {
   if (
     byOrder &&
     !confirm(
-      `${byOrder.by} already contacted this order. Overwrite with your contact?`,
+      `${capitalizeName(byOrder.by)} already contacted this order. Overwrite with your contact?`,
     )
   )
     return;
@@ -539,7 +561,7 @@ els.form.addEventListener("submit", async (ev) => {
   const r = await send("upsert", {
     order: els.order.value.trim(),
     phone: els.phone.value.trim() ? prettyPhone(els.phone.value) : "",
-    customer: els.name.value.trim(),
+    customer: capitalizeName(els.name.value.trim()),
     systemPrice: els.systemPrice.value.trim(),
     status: "texted",
   });
@@ -575,7 +597,7 @@ els.export.addEventListener("click", () => {
       e.customer,
       e.systemPrice,
       STATUS_LABEL[e.status],
-      e.by,
+      capitalizeName(e.by),
       new Date(e.ts).toISOString(),
     ]),
   );
@@ -633,7 +655,7 @@ for (const s of themeSelects)
   const draft = (await chrome.storage.local.get(DRAFT_KEY))[DRAFT_KEY] || {};
   els.phone.value = draft.phone || "";
   els.order.value = draft.order || "";
-  els.name.value = draft.name || "";
+  els.name.value = capitalizeName(draft.name || "");
   els.systemPrice.value = draft.systemPrice || "";
   els.clear.hidden = !(
     draft.phone ||
