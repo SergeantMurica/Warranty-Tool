@@ -66,7 +66,7 @@ async function signUp({ email, password, name }) {
 }
 
 async function signOut() {
-  await chrome.storage.local.remove([AUTH_KEY, CACHE_KEY]);
+  await chrome.storage.local.remove([AUTH_KEY, CACHE_KEY, SYNC_KEY]);
 }
 
 async function validToken() {
@@ -121,6 +121,7 @@ function decode(doc) {
     uid: s("uid"),
     hidden: f.hidden?.booleanValue === true,
     ts: Number(f.ts?.integerValue || 0),
+    updatedAt: Number(f.updatedAt?.integerValue || 0),
   };
 }
 
@@ -133,11 +134,17 @@ function encode(c) {
       status: str(c.status), by: str(c.by), uid: str(c.uid),
       hidden: { booleanValue: !!c.hidden },
       ts: { integerValue: String(c.ts) },
+      updatedAt: { integerValue: String(c.updatedAt || Date.now()) },
     },
   };
 }
 
-async function refreshContacts() {
+const SYNC_KEY = "wtSyncAt";
+const SYNC_OVERLAP_MS = 2 * 60 * 1000; // tolerate clock skew between teammates
+const MIN_REFRESH_MS = 60 * 1000;
+let inflight = null;
+
+async function fullFetch() {
   const out = {};
   let pageToken = "";
   do {
@@ -150,7 +157,55 @@ async function refreshContacts() {
     }
     pageToken = j.nextPageToken || "";
   } while (pageToken);
-  await chrome.storage.local.set({ [CACHE_KEY]: { items: out, fetchedAt: Date.now() } });
+  return out;
+}
+
+async function changedSince(since) {
+  const parent = DOCS().replace(/\/[^/]+$/, "");
+  const res = await api(`${parent}:runQuery`, {
+    method: "POST",
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId: CFG.collection }],
+        where: {
+          fieldFilter: {
+            field: { fieldPath: "updatedAt" },
+            op: "GREATER_THAN",
+            value: { integerValue: String(since) },
+          },
+        },
+      },
+    }),
+  });
+  return (res || []).filter((r) => r.document).map((r) => decode(r.document));
+}
+
+// Incremental: after the first full load, only documents changed since the last sync are read.
+async function doRefresh(force) {
+  const store = await chrome.storage.local.get([CACHE_KEY, SYNC_KEY]);
+  const syncedAt = store[SYNC_KEY] || 0;
+  const cached = store[CACHE_KEY];
+  if (!force && cached && Date.now() - syncedAt < MIN_REFRESH_MS) return;
+  const startedAt = Date.now();
+  if (!cached || !syncedAt) {
+    await chrome.storage.local.set({
+      [CACHE_KEY]: { items: await fullFetch(), fetchedAt: startedAt },
+      [SYNC_KEY]: startedAt,
+    });
+    return;
+  }
+  const changed = await changedSince(syncedAt - SYNC_OVERLAP_MS);
+  const dirty = changed.filter((c) => JSON.stringify(cached.items[c.id]) !== JSON.stringify(c));
+  if (dirty.length) {
+    for (const c of dirty) cached.items[c.id] = c;
+    await chrome.storage.local.set({ [CACHE_KEY]: { items: cached.items, fetchedAt: startedAt } });
+  }
+  await chrome.storage.local.set({ [SYNC_KEY]: startedAt });
+}
+
+function refreshContacts(force = false) {
+  inflight ||= doRefresh(force).finally(() => { inflight = null; });
+  return inflight;
 }
 
 async function patchCache(fn) {
@@ -168,7 +223,7 @@ async function upsert(input) {
   const contact = {
     id, order: String(input.order).trim(), phone: input.phone || "", customer: input.customer || "",
     systemPrice: String(input.systemPrice || "").trim(),
-    note: input.note || "", status, by: a.name, uid: a.uid, ts: Date.now(),
+    note: input.note || "", status, by: a.name, uid: a.uid, ts: Date.now(), updatedAt: Date.now(),
   };
   await api(`${DOCS()}/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(encode(contact)) });
   await patchCache((items) => { items[id] = contact; });
@@ -182,6 +237,7 @@ async function updateDetails({ id, phone, customer, systemPrice }) {
     phone: String(phone || "").trim(),
     customer: String(customer || "").trim(),
     systemPrice: String(systemPrice || "").trim(),
+    updatedAt: Date.now(),
   };
   await api(`${DOCS()}/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(encode(contact)) });
   await patchCache((items) => { items[id] = contact; });
@@ -191,7 +247,7 @@ async function updateDetails({ id, phone, customer, systemPrice }) {
 async function remove(id) {
   const cur = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY]?.items?.[id];
   if (!cur) throw new Error("Order not found. Refresh and try again.");
-  const contact = { ...cur, hidden: true };
+  const contact = { ...cur, hidden: true, updatedAt: Date.now() };
   await api(`${DOCS()}/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(encode(contact)) });
   await patchCache((items) => { items[id] = contact; });
 }
@@ -200,7 +256,7 @@ async function remove(id) {
 const handlers = {
   signIn, signUp, signOut, upsert, updateDetails,
   remove: ({ id }) => remove(id),
-  refresh: refreshContacts,
+  refresh: (p) => refreshContacts(!!p?.force),
 };
 
 chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
@@ -218,7 +274,7 @@ function setupAlarm() {
 chrome.runtime.onInstalled.addListener(setupAlarm);
 chrome.runtime.onStartup.addListener(setupAlarm);
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === "wt-poll" && (await getAuth())) refreshContacts().catch(() => {});
+  if (alarm.name === "wt-poll" && (await getAuth())) refreshContacts(true).catch(() => {});
 });
 chrome.runtime.onInstalled.addListener(() => chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }));
 chrome.runtime.onStartup.addListener(() => chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }));
