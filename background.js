@@ -169,6 +169,14 @@ async function upsert(input) {
   await patchCache((items) => { items[id] = contact; });
 }
 
+async function updateDetails({ id, phone, customer }) {
+  const cur = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY]?.items?.[id];
+  if (!cur) throw new Error("Order not found. Refresh and try again.");
+  const contact = { ...cur, phone: String(phone || "").trim(), customer: String(customer || "").trim() };
+  await api(`${DOCS()}/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(encode(contact)) });
+  await patchCache((items) => { items[id] = contact; });
+}
+
 async function remove(id) {
   await api(`${DOCS()}/${encodeURIComponent(id)}`, { method: "DELETE" });
   await patchCache((items) => { delete items[id]; });
@@ -176,7 +184,7 @@ async function remove(id) {
 
 // ---------- messaging / polling ----------
 const handlers = {
-  signIn, signUp, signOut, upsert,
+  signIn, signUp, signOut, upsert, updateDetails,
   remove: ({ id }) => remove(id),
   refresh: refreshContacts,
 };

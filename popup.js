@@ -25,12 +25,47 @@ const els = {
   hint: $("hint"), error: $("error"), clear: $("clear"),
   tabs: $("tabs"), search: $("search"), list: $("list"), empty: $("empty"),
   count: $("count"), export: $("export"),
+  total: $("total"), copyScript: $("copyScript"), scriptHint: $("scriptHint"),
 };
+
+// ---------- text script ----------
+const PRICES = {
+  2: [[2348, 180], [9500, 240], [Infinity, 320]],
+  3: [[2348, 240], [9500, 320], [Infinity, 480]],
+};
+const priceFor = (years, total) => PRICES[years].find(([max]) => total <= max)[1];
+
+function buildScript(customer) {
+  const total = parseFloat(String(els.total.value).replace(/[^0-9.]/g, ""));
+  const known = Number.isFinite(total);
+  const two = known ? `$${priceFor(2, total)}` : "{2 year}";
+  const three = known ? `$${priceFor(3, total)}` : "{3 year}";
+  const first = String(customer || "").trim().split(/\s+/)[0];
+  return `Hello ${first || "there"}! This is ${auth?.name || "{Employee Name}"} from META PCs, quick one message before your window is expired.
+
+Your build already comes with lifetime phone & email support on us. The extended warranty covers the hardware if something breaks, our US-based repair team fixes or replaces it, no questions asked.
+
+• 2 years – ${two}
+• 3 years – ${three}
+
+Can only add it before it leaves our doors. Would you like to add either of those options on?`;
+}
+
+async function copyScript(customer, button) {
+  await navigator.clipboard.writeText(buildScript(customer));
+  const label = button.textContent;
+  button.textContent = label === "✉" ? "✓" : "Copied";
+  setTimeout(() => { button.textContent = label; }, 900);
+  const missing = !/\d/.test(els.total.value);
+  els.scriptHint.textContent = "No order total entered, so prices were left as {2 year} / {3 year}. Custom builds: fill them in by hand.";
+  els.scriptHint.hidden = !missing;
+}
 
 let auth = null;
 let entries = [];
 let filter = "all";
 let signUpMode = false;
+let editing = false;
 
 // ---------- helpers ----------
 const send = (type, payload) =>
@@ -95,7 +130,7 @@ async function load() {
   if (auth) {
     els.signOut.textContent = `${auth.name} (sign out)`;
     updateHint();
-    render();
+    if (!editing) render();
   }
 }
 chrome.storage.onChanged.addListener((c, area) => {
@@ -168,7 +203,12 @@ function copyButton(text, label) {
   return b;
 }
 
+function closeEdit() {
+  render();
+}
+
 function render() {
+  editing = false;
   const q = els.search.value.trim().toLowerCase();
   const qd = digits(q);
   const shown = entries
@@ -250,7 +290,62 @@ function render() {
       if (!r.ok) showError(els.error, r.error);
     });
 
-    side.append(chip, del);
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "del";
+    edit.textContent = "✎";
+    edit.title = "Add or edit name and phone";
+    edit.setAttribute("aria-label", `Edit details for ${e.order}`);
+    edit.addEventListener("click", () => {
+      const form = document.createElement("div");
+      form.className = "edit-row";
+      const nameIn = document.createElement("input");
+      nameIn.type = "text";
+      nameIn.placeholder = "Customer name";
+      nameIn.value = e.customer;
+      const phoneIn = document.createElement("input");
+      phoneIn.type = "tel";
+      phoneIn.placeholder = "Phone";
+      phoneIn.value = e.phone;
+      const save = document.createElement("button");
+      save.type = "button";
+      save.className = "primary";
+      save.textContent = "Save";
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "ghost";
+      cancel.textContent = "Cancel";
+      cancel.addEventListener("click", closeEdit);
+      const submit = async () => {
+        save.disabled = true;
+        const r = await send("updateDetails", {
+          id: e.id,
+          customer: nameIn.value,
+          phone: phoneIn.value.trim() ? prettyPhone(phoneIn.value) : "",
+        });
+        if (!r.ok) { save.disabled = false; showError(els.error, r.error); return; }
+        closeEdit();
+      };
+      save.addEventListener("click", submit);
+      for (const i of [nameIn, phoneIn]) {
+        i.addEventListener("keydown", (k) => { if (k.key === "Enter") submit(); else if (k.key === "Escape") closeEdit(); });
+      }
+      form.append(nameIn, phoneIn, save, cancel);
+      row.append(form);
+      edit.disabled = true;
+      editing = true;
+      (e.customer ? phoneIn : nameIn).focus();
+    });
+
+    const script = document.createElement("button");
+    script.type = "button";
+    script.className = "del";
+    script.textContent = "✉";
+    script.title = "Copy text script";
+    script.setAttribute("aria-label", `Copy text script for ${e.order}`);
+    script.addEventListener("click", () => copyScript(e.customer, script));
+
+    side.append(chip, script, edit, del);
     row.append(title, meta, side);
     els.list.append(row);
   }
@@ -261,6 +356,8 @@ for (const input of [els.phone, els.order, els.name]) {
   input.addEventListener("input", () => { showError(els.error, ""); updateHint(); saveDraft(); });
 }
 els.search.addEventListener("input", render);
+els.copyScript.addEventListener("click", () => copyScript(els.name.value, els.copyScript));
+els.total.addEventListener("input", () => { els.scriptHint.hidden = true; });
 
 els.clear.addEventListener("click", () => {
   els.form.reset();

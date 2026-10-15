@@ -63,6 +63,15 @@
       </div>
     </form>
 
+    <div class="script-row">
+      <label class="field">
+        <span>Order total <em>sets warranty prices</em></span>
+        <input id="total" type="text" inputmode="decimal" placeholder="e.g. 3150">
+      </label>
+      <button type="button" id="copyScript" class="ghost">Copy script</button>
+    </div>
+    <p class="hint" id="scriptHint" role="status" hidden></p>
+
     <section class="log">
       <div class="tabs" id="tabs" role="tablist" aria-label="Filter"></div>
       <input id="search" type="search" placeholder="Search order, phone, customer or teammate">
