@@ -4,7 +4,15 @@ const THEME_KEY = "warranty-tool-theme";
 const CACHE_KEY = "wtContacts";
 const AUTH_KEY = "wtAuth";
 const DRAFT_KEY = "wtDraft";
-const STATUSES = ["texted", "replied", "agreed", "declined", "none", "paid", "wrong_number_error"];
+const STATUSES = [
+  "texted",
+  "replied",
+  "agreed",
+  "declined",
+  "none",
+  "paid",
+  "wrong_number_error",
+];
 const STATUS_LABEL = {
   texted: "Texted",
   replied: "Replied",
@@ -17,32 +25,61 @@ const STATUS_LABEL = {
 
 const $ = (id) => document.getElementById(id);
 const els = {
-  authView: $("authView"), mainView: $("mainView"),
-  authForm: $("authForm"), authName: $("authName"), nameField: $("nameField"),
-  authEmail: $("authEmail"), authPass: $("authPass"), authError: $("authError"),
-  authToggle: $("authToggle"), authSubmit: $("authSubmit"), signOut: $("signOut"),
-  form: $("form"), phone: $("phone"), order: $("order"), name: $("name"),
+  authView: $("authView"),
+  mainView: $("mainView"),
+  authForm: $("authForm"),
+  authName: $("authName"),
+  nameField: $("nameField"),
+  authEmail: $("authEmail"),
+  authPass: $("authPass"),
+  authError: $("authError"),
+  authToggle: $("authToggle"),
+  authSubmit: $("authSubmit"),
+  signOut: $("signOut"),
+  form: $("form"),
+  phone: $("phone"),
+  order: $("order"),
+  name: $("name"),
   systemPrice: $("systemPrice"),
-  hint: $("hint"), error: $("error"), clear: $("clear"),
-  tabs: $("tabs"), search: $("search"), list: $("list"), empty: $("empty"),
-  count: $("count"), export: $("export"),
-  total: $("total"), copyScript: $("copyScript"), scriptHint: $("scriptHint"),
+  hint: $("hint"),
+  error: $("error"),
+  clear: $("clear"),
+  tabs: $("tabs"),
+  search: $("search"),
+  list: $("list"),
+  empty: $("empty"),
+  count: $("count"),
+  export: $("export"),
+  total: $("total"),
+  copyScript: $("copyScript"),
+  scriptHint: $("scriptHint"),
 };
 
 // ---------- text script ----------
 const PRICES = {
-  2: [[2348, 180], [9500, 240], [Infinity, 320]],
-  3: [[2348, 240], [9500, 320], [Infinity, 480]],
+  2: [
+    [2348, 180],
+    [9500, 240],
+    [Infinity, 320],
+  ],
+  3: [
+    [2348, 240],
+    [9500, 320],
+    [Infinity, 480],
+  ],
 };
-const priceFor = (years, total) => PRICES[years].find(([max]) => total <= max)[1];
+const priceFor = (years, total) =>
+  PRICES[years].find(([max]) => total <= max)[1];
 
 function buildScript(customer, systemPrice = els.total.value) {
   const total = parseFloat(String(systemPrice).replace(/[^0-9.]/g, ""));
   const known = Number.isFinite(total);
   const two = known ? `$${priceFor(2, total)}` : "{2 year}";
   const three = known ? `$${priceFor(3, total)}` : "{3 year}";
-  const first = String(customer || "").trim().split(/\s+/)[0];
-  return `Hello ${first || "there"}! This is ${auth?.name || "{Employee Name}"} from META PCs, quick one message before your window is expired.
+  const first = String(customer || "")
+    .trim()
+    .split(/\s+/)[0];
+  return `Hello ${first || "there"}! This is ${auth?.name || "{Employee Name}"} from META PCs, one quick message before your window is expired.
 
 Your build already comes with lifetime phone & email support on us. The extended warranty covers the hardware if something breaks, our US-based repair team fixes or replaces it, no questions asked.
 
@@ -56,9 +93,14 @@ async function copyScript(customer, button, systemPrice = els.total.value) {
   await navigator.clipboard.writeText(buildScript(customer, systemPrice));
   const label = button.textContent;
   button.textContent = label === "✉" ? "✓" : "Copied";
-  setTimeout(() => { button.textContent = label; }, 900);
-  const missing = !Number.isFinite(parseFloat(String(systemPrice).replace(/[^0-9.]/g, "")));
-  els.scriptHint.textContent = "No system price entered, so prices were left as {2 year} / {3 year}. Custom builds: fill them in by hand.";
+  setTimeout(() => {
+    button.textContent = label;
+  }, 900);
+  const missing = !Number.isFinite(
+    parseFloat(String(systemPrice).replace(/[^0-9.]/g, "")),
+  );
+  els.scriptHint.textContent =
+    "No system price entered, so prices were left as {2 year} / {3 year}. Custom builds: fill them in by hand.";
   els.scriptHint.hidden = !missing;
 }
 
@@ -71,8 +113,15 @@ let editing = false;
 
 // ---------- helpers ----------
 const send = (type, payload) =>
-  new Promise((resolve) => chrome.runtime.sendMessage({ type, payload }, (r) => resolve(r || { ok: false, error: "No response." })));
-const orderKey = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  new Promise((resolve) =>
+    chrome.runtime.sendMessage({ type, payload }, (r) =>
+      resolve(r || { ok: false, error: "No response." }),
+    ),
+  );
+const orderKey = (s) =>
+  String(s || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
 const digits = (s) => {
   let d = (s || "").replace(/\D/g, "");
   if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
@@ -80,16 +129,35 @@ const digits = (s) => {
 };
 const prettyPhone = (s) => {
   const d = digits(s);
-  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : (s || "").trim();
+  return d.length === 10
+    ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
+    : (s || "").trim();
 };
-const fmtDate = (ts) => new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-const fmtTime = (ts) => new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-const startOfDay = (ts) => { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); };
+const fmtDate = (ts) =>
+  new Date(ts).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+const fmtTime = (ts) =>
+  new Date(ts).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+const startOfDay = (ts) => {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
 function dayLabel(ts) {
   const diff = Math.round((startOfDay(Date.now()) - startOfDay(ts)) / 86400000);
   if (diff === 0) return "Today";
   if (diff === 1) return "Yesterday";
-  return new Date(ts).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  return new Date(ts).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
 }
 function showError(el, msg) {
   el.textContent = msg;
@@ -112,11 +180,20 @@ els.authForm.addEventListener("submit", async (ev) => {
   const password = els.authPass.value;
   const name = els.authName.value.trim();
   if (!email || !password || (signUpMode && !name)) {
-    showError(els.authError, signUpMode ? "Enter your name, email and password." : "Enter your email and password.");
+    showError(
+      els.authError,
+      signUpMode
+        ? "Enter your name, email and password."
+        : "Enter your email and password.",
+    );
     return;
   }
   els.authSubmit.disabled = true;
-  const r = await send(signUpMode ? "signUp" : "signIn", { email, password, name });
+  const r = await send(signUpMode ? "signUp" : "signIn", {
+    email,
+    password,
+    name,
+  });
   els.authSubmit.disabled = false;
   if (!r.ok) showError(els.authError, r.error);
 });
@@ -158,7 +235,10 @@ function findDuplicates() {
   const p = digits(els.phone.value);
   const k = orderKey(els.order.value);
   return {
-    byPhone: p.length >= 7 ? entries.find((e) => digits(e.phone) === p && e.id !== k) : null,
+    byPhone:
+      p.length >= 7
+        ? entries.find((e) => digits(e.phone) === p && e.id !== k)
+        : null,
     byOrder: k ? entries.find((e) => e.id === k) : null,
   };
 }
@@ -167,8 +247,14 @@ function updateHint() {
   els.order.classList.toggle("flag", !!byOrder);
   els.phone.classList.toggle("flag", !!byPhone);
   const msgs = [];
-  if (byOrder) msgs.push(`${byOrder.by} already contacted this order on ${fmtDate(byOrder.ts)}.`);
-  if (byPhone) msgs.push(`${byPhone.by} contacted this number (${byPhone.order}) on ${fmtDate(byPhone.ts)}.`);
+  if (byOrder)
+    msgs.push(
+      `${byOrder.by} already contacted this order on ${fmtDate(byOrder.ts)}.`,
+    );
+  if (byPhone)
+    msgs.push(
+      `${byPhone.by} contacted this number (${byPhone.order}) on ${fmtDate(byPhone.ts)}.`,
+    );
   els.hint.textContent = msgs.join(" ");
   els.hint.hidden = msgs.length === 0;
 }
@@ -178,8 +264,13 @@ function renderTabs() {
   const visible = listed();
   const mine = visible.filter((e) => e.uid === auth?.uid).length;
   const counts = { all: visible.length, mine };
-  for (const s of STATUSES) counts[s] = visible.filter((e) => e.status === s).length;
-  const defs = [["all", "All"], ["mine", "Mine"], ...STATUSES.map((s) => [s, STATUS_LABEL[s]])];
+  for (const s of STATUSES)
+    counts[s] = visible.filter((e) => e.status === s).length;
+  const defs = [
+    ["all", "All"],
+    ["mine", "Mine"],
+    ...STATUSES.map((s) => [s, STATUS_LABEL[s]]),
+  ];
   els.tabs.replaceChildren();
   for (const [key, label] of defs) {
     const b = document.createElement("button");
@@ -191,7 +282,10 @@ function renderTabs() {
     const n = document.createElement("b");
     n.textContent = counts[key];
     b.append(n);
-    b.addEventListener("click", () => { filter = key; render(); });
+    b.addEventListener("click", () => {
+      filter = key;
+      render();
+    });
     els.tabs.append(b);
   }
 }
@@ -206,7 +300,10 @@ function copyButton(text, label) {
     await navigator.clipboard.writeText(text);
     b.classList.add("done");
     b.textContent = "Copied";
-    setTimeout(() => { b.classList.remove("done"); b.textContent = label; }, 900);
+    setTimeout(() => {
+      b.classList.remove("done");
+      b.textContent = label;
+    }, 900);
   });
   return b;
 }
@@ -221,13 +318,18 @@ function render() {
   const qd = digits(q);
   const visible = listed();
   const shown = visible
-    .filter((e) => filter === "all" || (filter === "mine" ? e.uid === auth?.uid : e.status === filter))
-    .filter((e) =>
-      !q ||
-      (qd && digits(e.phone).includes(qd)) ||
-      e.order.toLowerCase().includes(q) ||
-      e.customer.toLowerCase().includes(q) ||
-      e.by.toLowerCase().includes(q)
+    .filter(
+      (e) =>
+        filter === "all" ||
+        (filter === "mine" ? e.uid === auth?.uid : e.status === filter),
+    )
+    .filter(
+      (e) =>
+        !q ||
+        (qd && digits(e.phone).includes(qd)) ||
+        e.order.toLowerCase().includes(q) ||
+        e.customer.toLowerCase().includes(q) ||
+        e.by.toLowerCase().includes(q),
     )
     .sort((a, b) => b.ts - a.ts);
 
@@ -235,7 +337,9 @@ function render() {
   renderTabs();
   els.list.replaceChildren();
   els.empty.hidden = shown.length > 0;
-  els.empty.textContent = visible.length ? "No matches." : "Nothing logged yet. Log the first order above.";
+  els.empty.textContent = visible.length
+    ? "No matches."
+    : "Nothing logged yet. Log the first order above.";
 
   let lastDay = null;
   for (const e of shown) {
@@ -261,7 +365,11 @@ function render() {
     by.className = "by";
     by.textContent = e.by;
     meta.append(by);
-    if (e.customer) { const s = document.createElement("span"); s.textContent = e.customer; meta.append(s); }
+    if (e.customer) {
+      const s = document.createElement("span");
+      s.textContent = e.customer;
+      meta.append(s);
+    }
     if (e.systemPrice) {
       const price = document.createElement("span");
       price.textContent = `$${Number(e.systemPrice).toLocaleString()}`;
@@ -289,7 +397,10 @@ function render() {
     }
     chip.addEventListener("change", async () => {
       const r = await send("upsert", { ...e, status: chip.value });
-      if (!r.ok) { showError(els.error, r.error); chip.value = e.status; }
+      if (!r.ok) {
+        showError(els.error, r.error);
+        chip.value = e.status;
+      }
     });
 
     const del = document.createElement("button");
@@ -299,7 +410,12 @@ function render() {
     del.title = "Remove";
     del.setAttribute("aria-label", `Remove ${e.order}`);
     del.addEventListener("click", async () => {
-      if (!confirm(`Remove ${e.order} from the list? It stays on record so the order still shows as contacted on Shopify.`)) return;
+      if (
+        !confirm(
+          `Remove ${e.order} from the list? It stays on record so the order still shows as contacted on Shopify.`,
+        )
+      )
+        return;
       const r = await send("remove", { id: e.id });
       if (!r.ok) showError(els.error, r.error);
     });
@@ -345,12 +461,19 @@ function render() {
           phone: phoneIn.value.trim() ? prettyPhone(phoneIn.value) : "",
           systemPrice: priceIn.value,
         });
-        if (!r.ok) { save.disabled = false; showError(els.error, r.error); return; }
+        if (!r.ok) {
+          save.disabled = false;
+          showError(els.error, r.error);
+          return;
+        }
         closeEdit();
       };
       save.addEventListener("click", submit);
       for (const i of [nameIn, phoneIn, priceIn]) {
-        i.addEventListener("keydown", (k) => { if (k.key === "Enter") submit(); else if (k.key === "Escape") closeEdit(); });
+        i.addEventListener("keydown", (k) => {
+          if (k.key === "Enter") submit();
+          else if (k.key === "Escape") closeEdit();
+        });
       }
       form.append(nameIn, phoneIn, priceIn, save, cancel);
       row.append(form);
@@ -365,7 +488,9 @@ function render() {
     script.textContent = "✉";
     script.title = "Copy text script";
     script.setAttribute("aria-label", `Copy text script for ${e.order}`);
-    script.addEventListener("click", () => copyScript(e.customer, script, e.systemPrice));
+    script.addEventListener("click", () =>
+      copyScript(e.customer, script, e.systemPrice),
+    );
 
     side.append(chip, script, edit, del);
     row.append(title, meta, side);
@@ -375,11 +500,19 @@ function render() {
 
 // ---------- events ----------
 for (const input of [els.phone, els.order, els.name, els.systemPrice]) {
-  input.addEventListener("input", () => { showError(els.error, ""); updateHint(); saveDraft(); });
+  input.addEventListener("input", () => {
+    showError(els.error, "");
+    updateHint();
+    saveDraft();
+  });
 }
 els.search.addEventListener("input", render);
-els.copyScript.addEventListener("click", () => copyScript(els.name.value, els.copyScript));
-els.total.addEventListener("input", () => { els.scriptHint.hidden = true; });
+els.copyScript.addEventListener("click", () =>
+  copyScript(els.name.value, els.copyScript),
+);
+els.total.addEventListener("input", () => {
+  els.scriptHint.hidden = true;
+});
 
 els.clear.addEventListener("click", () => {
   els.form.reset();
@@ -396,7 +529,13 @@ els.form.addEventListener("submit", async (ev) => {
     return;
   }
   const { byOrder } = findDuplicates();
-  if (byOrder && !confirm(`${byOrder.by} already contacted this order. Overwrite with your contact?`)) return;
+  if (
+    byOrder &&
+    !confirm(
+      `${byOrder.by} already contacted this order. Overwrite with your contact?`,
+    )
+  )
+    return;
 
   const r = await send("upsert", {
     order: els.order.value.trim(),
@@ -405,7 +544,10 @@ els.form.addEventListener("submit", async (ev) => {
     systemPrice: els.systemPrice.value.trim(),
     status: "texted",
   });
-  if (!r.ok) { showError(els.error, r.error); return; }
+  if (!r.ok) {
+    showError(els.error, r.error);
+    return;
+  }
   els.form.reset();
   saveDraft();
   updateHint();
@@ -417,10 +559,30 @@ els.export.addEventListener("click", () => {
   const exported = listed();
   if (!exported.length) return;
   const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const rows = [["Order", "Phone", "Customer", "System price", "Status", "Contacted by", "Date"]].concat(
-    exported.map((e) => [e.order, e.phone, e.customer, e.systemPrice, STATUS_LABEL[e.status], e.by, new Date(e.ts).toISOString()])
+  const rows = [
+    [
+      "Order",
+      "Phone",
+      "Customer",
+      "System price",
+      "Status",
+      "Contacted by",
+      "Date",
+    ],
+  ].concat(
+    exported.map((e) => [
+      e.order,
+      e.phone,
+      e.customer,
+      e.systemPrice,
+      STATUS_LABEL[e.status],
+      e.by,
+      new Date(e.ts).toISOString(),
+    ]),
   );
-  const blob = new Blob([rows.map((r) => r.map(esc).join(",")).join("\n")], { type: "text/csv" });
+  const blob = new Blob([rows.map((r) => r.map(esc).join(",")).join("\n")], {
+    type: "text/csv",
+  });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "warranty-contacts.csv";
@@ -430,28 +592,41 @@ els.export.addEventListener("click", () => {
 
 // ---------- theme ----------
 const themeSelects = document.querySelectorAll(".theme-select");
-for (const s of themeSelects) s.replaceChildren(...THEMES.map((t) => new Option(t.name, t.id)));
+for (const s of themeSelects)
+  s.replaceChildren(...THEMES.map((t) => new Option(t.name, t.id)));
 
 function applyTheme(id) {
-  const p = THEMES.find((t) => t.id === id) || THEMES.find((t) => t.id === DEFAULT_THEME);
+  const p =
+    THEMES.find((t) => t.id === id) ||
+    THEMES.find((t) => t.id === DEFAULT_THEME);
   const light = p.id === "white";
   const root = document.documentElement;
   root.dataset.theme = p.id;
   const vars = {
-    "--bg": p.bg, "--panel": p.panel, "--surface": p.panel, "--line": p.line, "--ink": p.text,
-    "--muted": p.muted, "--accent": p.accent, "--accent-ink": p.onAccent,
+    "--bg": p.bg,
+    "--panel": p.panel,
+    "--surface": p.panel,
+    "--line": p.line,
+    "--ink": p.text,
+    "--muted": p.muted,
+    "--accent": p.accent,
+    "--accent-ink": p.onAccent,
     "--accent-soft": `color-mix(in srgb, ${p.accent} 18%, ${p.panel})`,
-    "--ok": light ? "#17794D" : "#55D69A", "--warn": light ? "#9A5B00" : "#F2BD62",
-    "--bad": light ? "#B3261E" : "#FF8A80", "--danger": light ? "#B3261E" : "#FF8A80",
+    "--ok": light ? "#17794D" : "#55D69A",
+    "--warn": light ? "#9A5B00" : "#F2BD62",
+    "--bad": light ? "#B3261E" : "#FF8A80",
+    "--danger": light ? "#B3261E" : "#FF8A80",
     "--idle": p.muted,
   };
-  for (const k of ["ok", "warn", "bad"]) vars[`--${k}-soft`] = `color-mix(in srgb, var(--${k}) 18%, ${p.panel})`;
+  for (const k of ["ok", "warn", "bad"])
+    vars[`--${k}-soft`] = `color-mix(in srgb, var(--${k}) 18%, ${p.panel})`;
   vars["--idle-soft"] = `color-mix(in srgb, ${p.muted} 18%, ${p.panel})`;
   for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
   for (const s of themeSelects) s.value = p.id;
   chrome.storage.local.set({ [THEME_KEY]: p.id });
 }
-for (const s of themeSelects) s.addEventListener("change", () => applyTheme(s.value));
+for (const s of themeSelects)
+  s.addEventListener("change", () => applyTheme(s.value));
 
 // ---------- init ----------
 (async () => {
@@ -461,7 +636,12 @@ for (const s of themeSelects) s.addEventListener("change", () => applyTheme(s.va
   els.order.value = draft.order || "";
   els.name.value = draft.name || "";
   els.systemPrice.value = draft.systemPrice || "";
-  els.clear.hidden = !(draft.phone || draft.order || draft.name || draft.systemPrice);
+  els.clear.hidden = !(
+    draft.phone ||
+    draft.order ||
+    draft.name ||
+    draft.systemPrice
+  );
   await load();
   (auth ? els.order : els.authEmail).focus();
   if (auth) send("refresh");
