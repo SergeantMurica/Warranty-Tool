@@ -88,6 +88,7 @@ input.flag { border-color: var(--warn); }
 
 .tabs {
   display: flex; gap: 2px;
+  flex-wrap: wrap;
   padding: 3px; background: var(--idle-soft); border-radius: 9px;
 }
 .tab {
@@ -139,8 +140,9 @@ input.flag { border-color: var(--warn); }
 }
 .chip option { background: var(--surface); color: var(--ink); font-weight: 500; }
 .chip[data-status="replied"]  { background-color: var(--ok-soft); color: var(--ok); }
+.chip[data-status="agreed"], .chip[data-status="paid"] { background-color: var(--ok-soft); color: var(--ok); }
 .chip[data-status="declined"] { background-color: var(--bad-soft); color: var(--bad); }
-.chip[data-status="none"]     { background-color: var(--idle-soft); color: var(--idle); }
+.chip[data-status="none"], .chip[data-status="wrong_number_error"] { background-color: var(--idle-soft); color: var(--idle); }
 
 .del {
   width: 26px; height: 26px; border: 0; border-radius: 6px;

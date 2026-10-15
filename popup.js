@@ -4,8 +4,16 @@ const THEME_KEY = "warranty-tool-theme";
 const CACHE_KEY = "wtContacts";
 const AUTH_KEY = "wtAuth";
 const DRAFT_KEY = "wtDraft";
-const STATUSES = ["texted", "replied", "declined", "none"];
-const STATUS_LABEL = { texted: "Texted", replied: "Replied", declined: "Declined", none: "No answer" };
+const STATUSES = ["texted", "replied", "agreed", "declined", "none", "paid", "wrong_number_error"];
+const STATUS_LABEL = {
+  texted: "Texted",
+  replied: "Replied",
+  agreed: "Agreed",
+  declined: "Declined",
+  none: "No answer",
+  paid: "Paid",
+  wrong_number_error: "Wrong number/error",
+};
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -128,7 +136,7 @@ function renderTabs() {
   const mine = entries.filter((e) => e.uid === auth?.uid).length;
   const counts = { all: entries.length, mine };
   for (const s of STATUSES) counts[s] = entries.filter((e) => e.status === s).length;
-  const defs = [["all", "All"], ["mine", "Mine"], ["texted", "Texted"], ["replied", "Replied"], ["declined", "Declined"], ["none", "No answer"]];
+  const defs = [["all", "All"], ["mine", "Mine"], ...STATUSES.map((s) => [s, STATUS_LABEL[s]])];
   els.tabs.replaceChildren();
   for (const [key, label] of defs) {
     const b = document.createElement("button");

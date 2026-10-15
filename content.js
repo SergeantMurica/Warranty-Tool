@@ -4,7 +4,15 @@
 
   const CACHE_KEY = "wtContacts";
   const AUTH_KEY = "wtAuth";
-  const LABEL = { texted: "Texted", replied: "Replied", declined: "Declined", none: "No answer" };
+  const LABEL = {
+    texted: "Texted",
+    replied: "Replied",
+    agreed: "Agreed",
+    declined: "Declined",
+    none: "No answer",
+    paid: "Paid",
+    wrong_number_error: "Wrong number/error",
+  };
   const ORDER_TEXT = /^#?[A-Za-z]{0,6}\d{3,}$/;
 
   let items = {};

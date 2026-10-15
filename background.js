@@ -3,7 +3,7 @@ importScripts("config.js");
 const CFG = self.WARRANTY_CONFIG;
 const AUTH_KEY = "wtAuth";
 const CACHE_KEY = "wtContacts";
-const STATUSES = ["texted", "replied", "declined", "none"];
+const STATUSES = ["texted", "replied", "agreed", "declined", "none", "paid", "wrong_number_error"];
 
 const DOCS = () =>
   `https://firestore.googleapis.com/v1/projects/${CFG.projectId}/databases/(default)/documents/${CFG.collection}`;

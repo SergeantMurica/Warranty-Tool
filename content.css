@@ -1,21 +1,24 @@
 .wt-badge {
   display: inline-block;
   margin-left: 8px;
-  padding: 1px 8px;
+  padding: 1px 9px;
   border-radius: 10px;
-  font: 600 11px/18px system-ui, sans-serif;
+  font: 700 11px/18px system-ui, sans-serif;
   white-space: nowrap;
   cursor: pointer;
   vertical-align: middle;
-  background: #fde2e0;
-  color: #8e1f0b;
-  border: 1px solid #f0b3ad;
+  background: #d92d20;
+  color: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.25);
 }
-.wt-badge[data-state="texted"] { background: #e3f1df; color: #0c5132; border-color: #a9d6b6; }
-.wt-badge[data-state="replied"] { background: #dbeafe; color: #1e3a8a; border-color: #a5c4f5; }
-.wt-badge[data-state="declined"] { background: #eceff3; color: #4b5563; border-color: #cdd3db; }
-.wt-badge[data-state="none"] { background: #fff1d6; color: #7a4a00; border-color: #ecca86; }
-.wt-badge:hover { filter: brightness(0.95); }
+.wt-badge[data-state="texted"] { background: #1d4ed8; }
+.wt-badge[data-state="replied"] { background: #7c3aed; }
+.wt-badge[data-state="agreed"] { background: #0e9f6e; }
+.wt-badge[data-state="paid"] { background: #15803d; }
+.wt-badge[data-state="declined"] { background: #374151; }
+.wt-badge[data-state="none"] { background: #f59e0b; color: #1f1300; }
+.wt-badge[data-state="wrong_number_error"] { background: #be123c; }
+.wt-badge:hover { filter: brightness(1.12); }
 
 .wt-menu {
   position: fixed;
