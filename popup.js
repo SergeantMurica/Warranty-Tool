@@ -58,24 +58,32 @@ const els = {
 // ---------- text script ----------
 const PRICES = {
   2: [
-    [2348, 180],
-    [9500, 240],
-    [Infinity, 320],
+    [2500, 180],
+    [4500, 240],
+    [12000, 320],
   ],
   3: [
-    [2348, 240],
-    [9500, 320],
-    [Infinity, 480],
+    [2500, 240],
+    [4500, 320],
+    [12000, 480],
   ],
 };
+const MAX_PRICED_TOTAL = 12000;
+const MANAGER_NOTE = "{manager to calculate}";
 const priceFor = (years, total) =>
-  PRICES[years].find(([max]) => total <= max)[1];
+  total > MAX_PRICED_TOTAL
+    ? null
+    : PRICES[years].find(([max]) => total <= max)[1];
+const priceText = (years, total) => {
+  const p = priceFor(years, total);
+  return p === null ? MANAGER_NOTE : `$${p}`;
+};
 
 function buildScript(customer, systemPrice = els.total.value) {
   const total = parseFloat(String(systemPrice).replace(/[^0-9.]/g, ""));
   const known = Number.isFinite(total);
-  const two = known ? `$${priceFor(2, total)}` : "{2 year}";
-  const three = known ? `$${priceFor(3, total)}` : "{3 year}";
+  const two = known ? priceText(2, total) : "{2 year}";
+  const three = known ? priceText(3, total) : "{3 year}";
   const first = String(customer || "")
     .trim()
     .split(/\s+/)[0];
