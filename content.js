@@ -24,13 +24,21 @@
   const orderKey = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   // After the extension is reloaded, orphaned content scripts lose chrome.* access and throw.
   const alive = () => !!chrome.runtime?.id;
+  const RELOAD_MESSAGE = "The Warranty Upsell Tracker extension was reloaded or disconnected. Reload this Shopify page and try again.";
   const send = (type, payload) =>
     new Promise((resolve) => {
-      if (!alive()) return resolve({ ok: false });
+      if (!alive()) return resolve({ ok: false, error: RELOAD_MESSAGE });
       try {
-        chrome.runtime.sendMessage({ type, payload }, (r) => resolve(r || { ok: false }));
-      } catch {
-        resolve({ ok: false });
+        chrome.runtime.sendMessage({ type, payload }, (r) => {
+          const error = chrome.runtime.lastError;
+          if (error) {
+            resolve({ ok: false, error: `${RELOAD_MESSAGE}\n${error.message}` });
+            return;
+          }
+          resolve(r || { ok: false, error: "The Warranty Upsell Tracker did not respond. Reload this Shopify page and try again." });
+        });
+      } catch (error) {
+        resolve({ ok: false, error: `${RELOAD_MESSAGE}\n${error.message}` });
       }
     });
 
@@ -155,6 +163,11 @@
   function onBadgeClick(ev) {
     ev.preventDefault();
     ev.stopPropagation();
+    if (!alive()) {
+      closeMenu();
+      alert(RELOAD_MESSAGE);
+      return;
+    }
     if (!signedIn) {
       alert("Open the Warranty Upsell Tracker popup and sign in first.");
       return;
