@@ -20,8 +20,17 @@
   let menu = null;
 
   const orderKey = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  // After the extension is reloaded, orphaned content scripts lose chrome.* access and throw.
+  const alive = () => !!chrome.runtime?.id;
   const send = (type, payload) =>
-    new Promise((resolve) => chrome.runtime.sendMessage({ type, payload }, (r) => resolve(r || { ok: false })));
+    new Promise((resolve) => {
+      if (!alive()) return resolve({ ok: false });
+      try {
+        chrome.runtime.sendMessage({ type, payload }, (r) => resolve(r || { ok: false }));
+      } catch {
+        resolve({ ok: false });
+      }
+    });
 
   function orderTargets() {
     const found = [];
@@ -112,7 +121,9 @@
   new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
 
   async function load() {
-    const d = await chrome.storage.local.get([CACHE_KEY, AUTH_KEY]);
+    if (!alive()) return;
+    const d = await chrome.storage.local.get([CACHE_KEY, AUTH_KEY]).catch(() => null);
+    if (!d) return;
     items = d[CACHE_KEY]?.items || {};
     signedIn = !!d[AUTH_KEY];
     paint();
