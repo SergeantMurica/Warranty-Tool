@@ -24,7 +24,8 @@ const STATUS_LABEL = {
   already_has: "Already Has",
 };
 // A/B text-script variants (ids match lib/scripts.js).
-const VARIANT_IDS = Array.from({ length: 10 }, (_, i) => `v${i + 1}`);
+// Keep in sync with lib/scripts.js. Retired ids (v7) stay out so they are never assigned.
+const VARIANT_IDS = ["v1", "v2", "v3", "v4", "v5", "v6", "v8", "v9", "v10"];
 const randomVariant = () =>
   VARIANT_IDS[Math.floor(Math.random() * VARIANT_IDS.length)];
 // Bumped when cached records change shape (v2: updateTime, v3: legacy "replied" folded into texted, v4: A/B variant).

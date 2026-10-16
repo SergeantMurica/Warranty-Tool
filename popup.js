@@ -147,7 +147,8 @@ async function copyScript(e, button, stage = stageFor(e.status), save = true) {
 let auth = null;
 let entries = []; // every record, including hidden ones (used for duplicate checks)
 const listed = () => entries.filter((e) => !e.hidden);
-let filter = "all";
+let ownerFilter = "all";
+let statusFilter = null;
 let signUpMode = false;
 let editing = false;
 
@@ -340,14 +341,14 @@ function renderTabs() {
   const counts = { all: visible.length, mine };
   for (const s of STATUSES)
     counts[s] = visible.filter((e) => e.status === s).length;
-  const tab = (key, label, full = label) => {
+  const tab = (key, label, full = label, selected = false) => {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "tab";
     b.dataset.status = key;
     b.title = full;
     b.setAttribute("role", "tab");
-    b.setAttribute("aria-selected", String(filter === key));
+    b.setAttribute("aria-selected", String(selected));
     b.setAttribute("aria-label", `${full} (${counts[key]})`);
     const name = document.createElement("span");
     name.className = "tab-name";
@@ -356,18 +357,29 @@ function renderTabs() {
     n.textContent = counts[key];
     b.append(name, n);
     b.addEventListener("click", () => {
-      filter = key;
+      if (key === "all" || key === "mine") ownerFilter = key;
+      else statusFilter = key;
       render();
     });
     return b;
   };
   const main = document.createElement("div");
   main.className = "tabs-main";
-  main.append(tab("all", "All"), tab("mine", "Me"));
+  main.append(
+    tab("all", "All", "All", ownerFilter === "all"),
+    tab("mine", "Me", "Me", ownerFilter === "mine"),
+  );
   const grid = document.createElement("div");
   grid.className = "tabs-status";
   for (const s of STATUSES)
-    grid.append(tab(s, TAB_LABEL[s] || STATUS_LABEL[s], STATUS_LABEL[s]));
+    grid.append(
+      tab(
+        s,
+        TAB_LABEL[s] || STATUS_LABEL[s],
+        STATUS_LABEL[s],
+        statusFilter === s,
+      ),
+    );
   els.tabs.replaceChildren(main, grid);
 }
 
@@ -399,11 +411,8 @@ function render() {
   const qd = digits(q);
   const visible = listed();
   const shown = visible
-    .filter(
-      (e) =>
-        filter === "all" ||
-        (filter === "mine" ? e.uid === auth?.uid : e.status === filter),
-    )
+    .filter((e) => ownerFilter === "all" || e.uid === auth?.uid)
+    .filter((e) => !statusFilter || e.status === statusFilter)
     .filter(
       (e) =>
         !q ||
@@ -723,7 +732,8 @@ els.form.addEventListener("submit", async (ev) => {
   els.form.reset();
   saveDraft();
   updateHint();
-  filter = "all";
+  ownerFilter = "all";
+  statusFilter = null;
   els.order.focus();
 });
 
