@@ -1,4 +1,12 @@
 import { DEFAULT_THEME, THEMES } from "./lib/themes.js";
+import {
+  STAGE_TITLE,
+  fallbackVariant,
+  randomVariant,
+  stageFor,
+  variantById,
+  variantStats,
+} from "./lib/scripts.js";
 
 const THEME_KEY = "warranty-tool-theme";
 const CACHE_KEY = "wtContacts";
@@ -59,6 +67,8 @@ const els = {
   total: $("total"),
   copyScript: $("copyScript"),
   scriptHint: $("scriptHint"),
+  statsToggle: $("statsToggle"),
+  stats: $("stats"),
 };
 
 // ---------- text script ----------
@@ -86,7 +96,7 @@ const priceText = (years, total) => {
   return p === null ? MANAGER_NOTE : `$${p}`;
 };
 
-function buildScript(customer, systemPrice, watercooled = false) {
+function scriptContext(customer, systemPrice, watercooled = false) {
   const total = parseFloat(String(systemPrice).replace(/[^0-9.]/g, ""));
   const known = Number.isFinite(total);
   const tier = (years) =>
@@ -95,30 +105,43 @@ function buildScript(customer, systemPrice, watercooled = false) {
       : known
         ? priceText(years, total)
         : `{${years} year}`;
-  const two = tier(2);
-  const three = tier(3);
   const first = String(customer || "")
     .trim()
     .split(/\s+/)[0];
-  return `Hello ${first || "there"}! This is ${capitalizeName(auth?.name) || "{Employee Name}"} from META PCs, one quick message before your window is expired.
-
-Your build already comes with lifetime phone & email support on us. The extended warranty covers the hardware if something breaks, our US-based repair team fixes or replaces it, no questions asked.
-
-• 2 years – ${two}
-• 3 years – ${three}
-
-Can only add it before it leaves our doors. Would you like to add either of those options on?`;
+  return {
+    first: first || "there",
+    rep: capitalizeName(auth?.name) || "{Employee Name}",
+    two: tier(2),
+    three: tier(3),
+    build: known ? `a $${Math.round(total).toLocaleString()} build` : "your build",
+  };
 }
 
-async function copyScript(customer, button, systemPrice, watercooled) {
-  await navigator.clipboard.writeText(
-    buildScript(customer, systemPrice, watercooled),
-  );
+// Copies the script for the order's current stage: pitch, declined / no-answer follow-up, or invoice reply.
+async function copyScript(e, button, stage = stageFor(e.status), save = true) {
+  const variant =
+    variantById(e.variant) ||
+    (e.status === "texted" ? randomVariant() : fallbackVariant(e.id));
+  const ctx = scriptContext(e.customer, e.systemPrice, e.watercooled === "yes");
+  await navigator.clipboard.writeText(variant[stage](ctx));
   const label = button.textContent;
-  button.textContent = label === "✉" ? "✓" : "Copied";
+  button.textContent = "✓";
   setTimeout(() => {
     button.textContent = label;
   }, 900);
+  // Only orders still awaiting a reply get a newly assigned variant, so stats aren't skewed.
+  const assign = !e.variant && e.status === "texted";
+  const followUp =
+    (stage === "overcome" && !e.overcome) || (stage === "nudge" && !e.nudged);
+  if (save && (assign || followUp)) {
+    const r = await send("markScript", {
+      id: e.id,
+      variant: assign ? variant.id : "",
+      overcome: stage === "overcome",
+      nudged: stage === "nudge",
+    });
+    if (!r.ok) showError(els.error, r.error);
+  }
 }
 
 let auth = null;
@@ -393,6 +416,7 @@ function render() {
 
   els.count.textContent = `${visible.length} logged`;
   renderTabs();
+  if (!els.stats.hidden) renderStats();
   els.list.replaceChildren();
   els.empty.hidden = shown.length > 0;
   els.empty.textContent = visible.length
@@ -460,8 +484,16 @@ function render() {
       chip.append(o);
     }
     chip.addEventListener("change", async () => {
+      const stage = stageFor(chip.value);
+      // Copy the follow-up while the change event still counts as a user gesture.
+      if (stage !== "pitch")
+        copyScript({ ...e, status: chip.value }, script, stage, false).catch(
+          () => {},
+        );
       const r = await send("upsert", {
         ...e,
+        overcome: e.overcome || stage === "overcome",
+        nudged: e.nudged || stage === "nudge",
         status: chip.value,
         expect: e.updateTime || "",
       });
@@ -565,17 +597,70 @@ function render() {
     script.type = "button";
     script.className = "del";
     script.textContent = "✉";
-    script.title = "Copy text script";
-    script.setAttribute("aria-label", `Copy text script for ${e.order}`);
-    script.addEventListener("click", () =>
-      copyScript(e.customer, script, e.systemPrice, e.watercooled === "yes"),
-    );
+    const stage = stageFor(e.status);
+    const v = variantById(e.variant);
+    script.title = `${STAGE_TITLE[stage]}${v ? ` · tone: ${v.name}` : ""}`;
+    script.dataset.stage = stage;
+    script.setAttribute("aria-label", `${STAGE_TITLE[stage]} for ${e.order}`);
+    script.addEventListener("click", () => copyScript(e, script));
 
     side.append(chip, script, edit, del);
     row.append(title, meta, side);
     els.list.append(row);
   }
 }
+
+// ---------- A/B stats ----------
+const pct = (x) => (x === null ? "–" : `${Math.round(x * 100)}%`);
+function renderStats() {
+  const rows = variantStats(entries);
+  const best = Math.max(...rows.filter((r) => r.won + r.lost >= 5).map((r) => r.rate));
+  const table = document.createElement("table");
+  table.className = "stats-table";
+  const head = table.createTHead().insertRow();
+  for (const [h, t] of [
+    ["Tone", ""],
+    ["Sent", "Orders texted with this script"],
+    ["Won", "Agreed + Paid"],
+    ["Lost", "Declined + No answer"],
+    ["Win", "Won / (Won + Lost)"],
+    ["Saves", "Won after the declined follow-up / declined follow-ups sent"],
+    ["Revived", "Won after the no-answer follow-up / no-answer follow-ups sent"],
+  ]) {
+    const th = document.createElement("th");
+    th.textContent = h;
+    th.title = t;
+    head.append(th);
+  }
+  const body = table.createTBody();
+  for (const r of rows) {
+    const tr = body.insertRow();
+    if (r.rate !== null && r.rate === best) tr.className = "best";
+    for (const v of [
+      `${r.n}. ${r.name}`,
+      r.sent,
+      r.won,
+      r.lost,
+      pct(r.rate),
+      r.followUps ? `${r.saves}/${r.followUps}` : "–",
+      r.nudges ? `${r.revived}/${r.nudges}` : "–",
+    ])
+      tr.insertCell().textContent = v;
+  }
+  const t = rows.reduce(
+    (a, r) => ({ won: a.won + r.won, lost: a.lost + r.lost }),
+    { won: 0, lost: 0 },
+  );
+  const note = document.createElement("p");
+  note.className = "stats-note";
+  note.textContent = `Team total: ${t.won} won · ${t.lost} lost · ${pct(t.won + t.lost ? t.won / (t.won + t.lost) : null)} win rate. Best tone is highlighted once it has 5+ results.`;
+  els.stats.replaceChildren(table, note);
+}
+els.statsToggle.addEventListener("click", () => {
+  els.stats.hidden = !els.stats.hidden;
+  els.statsToggle.textContent = els.stats.hidden ? "A/B stats" : "Hide stats";
+  if (!els.stats.hidden) renderStats();
+});
 
 // ---------- events ----------
 for (const input of [
@@ -654,6 +739,9 @@ els.export.addEventListener("click", () => {
       "System price",
       "Watercooled",
       "Status",
+      "Script tone",
+      "Declined follow-up sent",
+      "No-answer follow-up sent",
       "Contacted by",
       "Date",
     ],
@@ -665,6 +753,9 @@ els.export.addEventListener("click", () => {
       e.systemPrice,
       e.watercooled === "yes" ? "Yes" : "",
       STATUS_LABEL[e.status],
+      variantById(e.variant)?.name || "",
+      e.overcome ? "Yes" : "",
+      e.nudged ? "Yes" : "",
       capitalizeName(e.by),
       new Date(e.ts).toISOString(),
     ]),

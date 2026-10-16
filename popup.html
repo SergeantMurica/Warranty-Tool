@@ -129,6 +129,7 @@
           type="search"
           placeholder="Search order, phone, customer or teammate"
         />
+        <div class="stats" id="stats" hidden></div>
         <div class="scroll" id="scroll">
           <div id="list"></div>
           <p class="empty" id="empty">Nothing logged yet.</p>
@@ -138,6 +139,7 @@
           <div class="foot-actions">
             <button type="button" id="import" class="link">Import CSV</button>
             <input type="file" id="importFile" accept=".csv,text/csv" hidden />
+            <button type="button" id="statsToggle" class="link">A/B stats</button>
             <button type="button" id="export" class="link">Export CSV</button>
             <button type="button" id="scrub" class="link danger" hidden>Scrub Firestore</button>
           </div>

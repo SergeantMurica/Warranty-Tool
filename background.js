@@ -23,8 +23,12 @@ const STATUS_LABEL = {
   wrong_number_error: "Wrong number/error",
   already_has: "Already Has",
 };
-// Bumped when cached records change shape (v2: updateTime, v3: legacy "replied" folded into texted).
-const CACHE_VERSION = 3;
+// A/B text-script variants (ids match lib/scripts.js).
+const VARIANT_IDS = Array.from({ length: 10 }, (_, i) => `v${i + 1}`);
+const randomVariant = () =>
+  VARIANT_IDS[Math.floor(Math.random() * VARIANT_IDS.length)];
+// Bumped when cached records change shape (v2: updateTime, v3: legacy "replied" folded into texted, v4: A/B variant).
+const CACHE_VERSION = 4;
 const CONFLICT_CODES = ["ALREADY_EXISTS", "FAILED_PRECONDITION"];
 
 const DOCS = () =>
@@ -174,6 +178,9 @@ function decode(doc) {
     by: s("by"),
     uid: s("uid"),
     hidden: f.hidden?.booleanValue === true,
+    variant: VARIANT_IDS.includes(s("variant")) ? s("variant") : "",
+    overcome: f.overcome?.booleanValue === true,
+    nudged: f.nudged?.booleanValue === true,
     ts: Number(f.ts?.integerValue || 0),
     updatedAt: Number(f.updatedAt?.integerValue || 0),
     updateTime: doc.updateTime || "",
@@ -190,6 +197,9 @@ function encode(c) {
       by: str(c.by),
       uid: str(c.uid),
       hidden: { booleanValue: !!c.hidden },
+      variant: str(c.variant),
+      overcome: { booleanValue: !!c.overcome },
+      nudged: { booleanValue: !!c.nudged },
       ts: { integerValue: String(c.ts) },
       updatedAt: { integerValue: String(c.updatedAt || Date.now()) },
     },
@@ -203,6 +213,9 @@ const SHARED_FIELDS = [
   "by",
   "uid",
   "hidden",
+  "variant",
+  "overcome",
+  "nudged",
   "ts",
   "updatedAt",
 ];
@@ -454,12 +467,25 @@ async function upsert(input) {
   // The original texter keeps the order when a teammate changes its status; only a hidden
   // (removed) record can be claimed by someone else.
   const owner =
-    prev && !prev.hidden ? prev : { by: a.name, uid: a.uid, ts: now, note: "" };
+    prev && !prev.hidden
+      ? prev
+      : { by: a.name, uid: a.uid, ts: now, note: "", variant: "", overcome: false, nudged: false };
+  // New contacts get a random script variant; existing ones keep theirs so outcomes stay attributed.
+  const variant = VARIANT_IDS.includes(owner.variant)
+    ? owner.variant
+    : VARIANT_IDS.includes(input.variant)
+      ? input.variant
+      : status === "texted"
+        ? randomVariant()
+        : "";
   const contact = {
     id,
     order: String(input.order).trim(),
     note: input.note ?? owner.note ?? "",
     status,
+    variant,
+    overcome: !!(input.overcome ?? owner.overcome),
+    nudged: !!(input.nudged ?? owner.nudged),
     by: owner.by,
     uid: owner.uid,
     ts: owner.ts,
@@ -505,6 +531,34 @@ async function updateDetails({
   });
   await patchCache((items) => {
     items[id] = { ...items[id], ...priv };
+  });
+}
+
+// Records which script variant was sent and whether the declined / no-answer follow-ups went out.
+// Only these fields are written, so a teammate's newer status is never reverted.
+async function markScript({ id, variant, overcome, nudged }) {
+  const cur = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY]?.items?.[
+    id
+  ];
+  if (!cur) throw new Error("Order not found. Refresh and try again.");
+  const fields = ["updatedAt"];
+  const contact = { ...cur, updatedAt: Date.now() };
+  if (VARIANT_IDS.includes(variant) && !cur.variant) {
+    contact.variant = variant;
+    fields.push("variant");
+  }
+  if (overcome && !cur.overcome) {
+    contact.overcome = true;
+    fields.push("overcome");
+  }
+  if (nudged && !cur.nudged) {
+    contact.nudged = true;
+    fields.push("nudged");
+  }
+  if (fields.length === 1) return;
+  contact.updateTime = await writeDoc(contact, { fields });
+  await patchCache((items) => {
+    items[id] = contact;
   });
 }
 
@@ -559,6 +613,7 @@ const handlers = {
   signOut,
   upsert,
   updateDetails,
+  markScript,
   scrub,
   importPrivate,
   enrich,

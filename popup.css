@@ -585,3 +585,46 @@ input.flag {
     transition: none !important;
   }
 }
+
+.del[data-stage="overcome"] {
+  color: var(--bad);
+}
+.del[data-stage="nudge"] {
+  color: var(--warn);
+}
+.del[data-stage="accept"] {
+  color: var(--ok);
+}
+.stats {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.stats-table th,
+.stats-table td {
+  padding: 3px 4px;
+  text-align: right;
+  white-space: nowrap;
+}
+.stats-table th:first-child,
+.stats-table td:first-child {
+  text-align: left;
+}
+.stats-table th {
+  color: var(--muted);
+  font-weight: 600;
+  cursor: help;
+}
+.stats-table tr.best td {
+  color: var(--ok);
+  font-weight: 600;
+}
+.stats-note {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
