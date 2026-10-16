@@ -4,5 +4,6 @@ self.WARRANTY_CONFIG = {
   apiKey: "AIzaSyC7bATo9pTQHG4KFbzlTHa5KfOE7QgT4HM",
   projectId: "metapcs-warranty-tool-test",
   collection: "warrantyContacts",
+  adminEmail: "alexander@metapcs.com",
   pollSeconds: 300,
 };

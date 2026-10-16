@@ -128,7 +128,12 @@
         </div>
         <footer class="foot">
           <select class="theme-select" aria-label="Color theme"></select>
-          <button type="button" id="export" class="link">Export CSV</button>
+          <div class="foot-actions">
+            <button type="button" id="import" class="link">Import CSV</button>
+            <input type="file" id="importFile" accept=".csv,text/csv" hidden />
+            <button type="button" id="export" class="link">Export CSV</button>
+            <button type="button" id="scrub" class="link danger" hidden>Scrub Firestore</button>
+          </div>
         </footer>
       </section>
     </section>

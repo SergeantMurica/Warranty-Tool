@@ -3,6 +3,8 @@ importScripts("config.js");
 const CFG = self.WARRANTY_CONFIG;
 const AUTH_KEY = "wtAuth";
 const CACHE_KEY = "wtContacts";
+const PRIVATE_KEY = "wtPrivate"; // customer name / phone / price: stored only on this device
+const PRIVATE_FIELDS = ["phone", "customer", "systemPrice"];
 const STATUSES = ["texted", "replied", "agreed", "declined", "none", "paid", "wrong_number_error"];
 
 const DOCS = () =>
@@ -129,8 +131,7 @@ function encode(c) {
   const str = (v) => ({ stringValue: String(v || "") });
   return {
     fields: {
-      order: str(c.order), phone: str(c.phone), customer: str(c.customer),
-      systemPrice: str(c.systemPrice), note: str(c.note),
+      order: str(c.order), note: str(c.note),
       status: str(c.status), by: str(c.by), uid: str(c.uid),
       hidden: { booleanValue: !!c.hidden },
       ts: { integerValue: String(c.ts) },
@@ -139,25 +140,72 @@ function encode(c) {
   };
 }
 
+const SHARED_FIELDS = ["order", "note", "status", "by", "uid", "hidden", "ts", "updatedAt"];
+
+// updateMask keeps legacy phone/customer/price in Firestore untouched until the admin scrubs them.
+async function writeDoc(contact) {
+  const q = new URLSearchParams();
+  SHARED_FIELDS.forEach((f) => q.append("updateMask.fieldPaths", f));
+  await api(`${DOCS()}/${encodeURIComponent(contact.id)}?${q}`, {
+    method: "PATCH",
+    body: JSON.stringify(encode(contact)),
+  });
+}
+
+async function getPrivate() {
+  return (await chrome.storage.local.get(PRIVATE_KEY))[PRIVATE_KEY] || {};
+}
+
+async function savePrivate(id, data) {
+  const priv = await getPrivate();
+  priv[id] = { ...priv[id], ...Object.fromEntries(PRIVATE_FIELDS.map((f) => [f, String(data[f] || "").trim()])) };
+  await chrome.storage.local.set({ [PRIVATE_KEY]: priv });
+}
+
+// Overlays this device's local customer data onto records from Firestore.
+async function mergePrivate(list) {
+  const priv = await getPrivate();
+  return list.map((c) => ({ ...c, phone: "", customer: "", systemPrice: "", ...priv[c.id] }));
+}
+
+// Merges phone/customer/price rows (e.g. from a CSV export) into local storage only.
+async function importPrivate({ rows }) {
+  const priv = await getPrivate();
+  let count = 0;
+  for (const r of rows || []) {
+    const id = orderKey(r.order);
+    if (!id) continue;
+    const next = { ...priv[id] };
+    for (const f of PRIVATE_FIELDS) {
+      const v = String(r[f] || "").trim();
+      if (v) next[f] = v;
+    }
+    priv[id] = next;
+    count++;
+  }
+  await chrome.storage.local.set({ [PRIVATE_KEY]: priv });
+  await patchCache((items) => {
+    for (const id of Object.keys(items)) if (priv[id]) Object.assign(items[id], priv[id]);
+  });
+  return count;
+}
+
 const SYNC_KEY = "wtSyncAt";
 const SYNC_OVERLAP_MS = 2 * 60 * 1000; // tolerate clock skew between teammates
 const MIN_REFRESH_MS = 60 * 1000;
 let inflight = null;
 
 async function fullFetch() {
-  const out = {};
+  const all = [];
   let pageToken = "";
   do {
     const q = new URLSearchParams({ pageSize: "300" });
     if (pageToken) q.set("pageToken", pageToken);
     const j = await api(`${DOCS()}?${q}`);
-    for (const d of j.documents || []) {
-      const c = decode(d);
-      out[c.id] = c;
-    }
+    for (const d of j.documents || []) all.push(decode(d));
     pageToken = j.nextPageToken || "";
   } while (pageToken);
-  return out;
+  return Object.fromEntries((await mergePrivate(all)).map((c) => [c.id, c]));
 }
 
 async function changedSince(since) {
@@ -177,7 +225,7 @@ async function changedSince(since) {
       },
     }),
   });
-  return (res || []).filter((r) => r.document).map((r) => decode(r.document));
+  return mergePrivate((res || []).filter((r) => r.document).map((r) => decode(r.document)));
 }
 
 // Incremental: after the first full load, only documents changed since the last sync are read.
@@ -225,7 +273,8 @@ async function upsert(input) {
     systemPrice: String(input.systemPrice || "").trim(),
     note: input.note || "", status, by: a.name, uid: a.uid, ts: Date.now(), updatedAt: Date.now(),
   };
-  await api(`${DOCS()}/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(encode(contact)) });
+  await savePrivate(id, contact);
+  await writeDoc(contact);
   await patchCache((items) => { items[id] = contact; });
 }
 
@@ -239,7 +288,8 @@ async function updateDetails({ id, phone, customer, systemPrice }) {
     systemPrice: String(systemPrice || "").trim(),
     updatedAt: Date.now(),
   };
-  await api(`${DOCS()}/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(encode(contact)) });
+  await savePrivate(id, contact);
+  await writeDoc(contact);
   await patchCache((items) => { items[id] = contact; });
 }
 
@@ -248,13 +298,37 @@ async function remove(id) {
   const cur = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY]?.items?.[id];
   if (!cur) throw new Error("Order not found. Refresh and try again.");
   const contact = { ...cur, hidden: true, updatedAt: Date.now() };
-  await api(`${DOCS()}/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(encode(contact)) });
+  await writeDoc(contact);
   await patchCache((items) => { items[id] = contact; });
+}
+
+// Admin only: deletes phone/customer/price from every Firestore document.
+async function scrub() {
+  const a = await getAuth();
+  if (a?.email?.toLowerCase() !== CFG.adminEmail) throw new Error("Not allowed.");
+  const parent = DOCS().replace(/\/[^/]+$/, "");
+  const writes = [];
+  let pageToken = "";
+  do {
+    const q = new URLSearchParams({ pageSize: "300" });
+    if (pageToken) q.set("pageToken", pageToken);
+    const j = await api(`${DOCS()}?${q}`);
+    for (const d of j.documents || []) {
+      writes.push({ update: { name: d.name, fields: {} }, updateMask: { fieldPaths: PRIVATE_FIELDS } });
+    }
+    pageToken = j.nextPageToken || "";
+  } while (pageToken);
+  for (let i = 0; i < writes.length; i += 400) {
+    await api(`${parent.replace(/\/documents.*/, "/documents")}:commit`, {
+      method: "POST",
+      body: JSON.stringify({ writes: writes.slice(i, i + 400) }),
+    });
+  }
 }
 
 // ---------- messaging / polling ----------
 const handlers = {
-  signIn, signUp, signOut, upsert, updateDetails,
+  signIn, signUp, signOut, upsert, updateDetails, scrub, importPrivate,
   remove: ({ id }) => remove(id),
   refresh: (p) => refreshContacts(!!p?.force),
 };
@@ -263,7 +337,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
   const fn = handlers[msg?.type];
   if (!fn) return false;
   Promise.resolve(fn(msg.payload || msg))
-    .then(() => respond({ ok: true }))
+    .then((count) => respond({ ok: true, count }))
     .catch((e) => respond({ ok: false, error: e.message }));
   return true;
 });

@@ -399,7 +399,20 @@ input.flag {
 }
 .foot {
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 16px;
+}
+.foot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin-left: auto;
+}
+.link.danger {
+  color: #e5484d;
 }
 .link {
   border: 0;

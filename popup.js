@@ -36,6 +36,9 @@ const els = {
   authToggle: $("authToggle"),
   authSubmit: $("authSubmit"),
   signOut: $("signOut"),
+  scrub: $("scrub"),
+  import: $("import"),
+  importFile: $("importFile"),
   form: $("form"),
   phone: $("phone"),
   order: $("order"),
@@ -208,6 +211,18 @@ els.authForm.addEventListener("submit", async (ev) => {
   if (!r.ok) showError(els.authError, r.error);
 });
 els.signOut.addEventListener("click", () => send("signOut"));
+els.scrub.addEventListener("click", async () => {
+  if (
+    !confirm(
+      "Permanently delete all customer names, phone numbers and prices from Firestore? Export a CSV first and make sure teammates have their own copies; this cannot be undone.",
+    )
+  )
+    return;
+  els.scrub.disabled = true;
+  const r = await send("scrub");
+  els.scrub.disabled = false;
+  alert(r.ok ? "Firestore scrubbed." : `Scrub failed: ${r.error}`);
+});
 els.authName.addEventListener("blur", () => {
   els.authName.value = capitalizeName(els.authName.value);
 });
@@ -227,6 +242,7 @@ async function load() {
   els.authView.hidden = !!auth;
   els.mainView.hidden = !auth;
   if (auth) {
+    els.scrub.hidden = auth.email?.toLowerCase() !== "alexander@metapcs.com";
     els.signOut.textContent = `${auth.name} (sign out)`;
     updateHint();
     if (!editing) render();
@@ -609,6 +625,49 @@ els.export.addEventListener("click", () => {
   a.download = "warranty-contacts.csv";
   a.click();
   URL.revokeObjectURL(a.href);
+});
+
+// ---------- import ----------
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cur = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"' && text[i + 1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') q = false;
+      else cur += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(cur); cur = ""; }
+    else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(cur); cur = "";
+      if (row.some((c) => c.trim())) rows.push(row);
+      row = [];
+    } else cur += ch;
+  }
+  row.push(cur);
+  if (row.some((c) => c.trim())) rows.push(row);
+  return rows;
+}
+
+els.import.addEventListener("click", () => els.importFile.click());
+els.importFile.addEventListener("change", async () => {
+  const file = els.importFile.files[0];
+  els.importFile.value = "";
+  if (!file) return;
+  const [head = [], ...body] = parseCsv((await file.text()).replace(/^\uFEFF/, ""));
+  const col = (name) => head.findIndex((h) => h.trim().toLowerCase() === name);
+  const idx = { order: col("order"), phone: col("phone"), customer: col("customer"), systemPrice: col("system price") };
+  if (idx.order < 0) return alert("CSV needs an Order column.");
+  const rows = body.map((r) => ({
+    order: r[idx.order],
+    phone: idx.phone < 0 ? "" : r[idx.phone],
+    customer: idx.customer < 0 ? "" : r[idx.customer],
+    systemPrice: idx.systemPrice < 0 ? "" : r[idx.systemPrice],
+  }));
+  const r = await send("importPrivate", { rows });
+  alert(r.ok ? `Imported ${r.count} rows to this device.` : `Import failed: ${r.error}`);
 });
 
 // ---------- theme ----------
