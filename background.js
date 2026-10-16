@@ -5,10 +5,23 @@ const AUTH_KEY = "wtAuth";
 const CACHE_KEY = "wtContacts";
 const PRIVATE_KEY = "wtPrivate"; // customer name / phone / price: stored only on this device
 const PRIVATE_FIELDS = ["phone", "customer", "systemPrice", "watercooled"];
-const STATUSES = ["texted", "agreed", "declined", "paid", "none", "wrong_number_error", "already_has"];
+const STATUSES = [
+  "texted",
+  "agreed",
+  "declined",
+  "paid",
+  "none",
+  "wrong_number_error",
+  "already_has",
+];
 const STATUS_LABEL = {
-  texted: "Texted", agreed: "Agreed", declined: "Declined",
-  none: "No answer", paid: "Paid", wrong_number_error: "Wrong number/error", already_has: "Already Has",
+  texted: "Texted",
+  agreed: "Agreed",
+  declined: "Declined",
+  none: "No answer",
+  paid: "Paid",
+  wrong_number_error: "Wrong number/error",
+  already_has: "Already Has",
 };
 // Bumped when cached records change shape (v2: updateTime, v3: legacy "replied" folded into texted).
 const CACHE_VERSION = 3;
@@ -17,7 +30,10 @@ const CONFLICT_CODES = ["ALREADY_EXISTS", "FAILED_PRECONDITION"];
 const DOCS = () =>
   `https://firestore.googleapis.com/v1/projects/${CFG.projectId}/databases/(default)/documents/${CFG.collection}`;
 
-const orderKey = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+const orderKey = (s) =>
+  String(s || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
 
 // ---------- auth ----------
 async function getAuth() {
@@ -35,14 +51,19 @@ function authError(json) {
     OPERATION_NOT_ALLOWED: "Email/password sign-in is disabled in Firebase.",
   };
   const key = Object.keys(map).find((k) => code.startsWith(k));
-  if (code.startsWith("WEAK_PASSWORD")) return "Password must be at least 6 characters.";
+  if (code.startsWith("WEAK_PASSWORD"))
+    return "Password must be at least 6 characters.";
   return key ? map[key] : code;
 }
 
 async function identity(endpoint, body) {
   const res = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:${endpoint}?key=${CFG.apiKey}`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
   );
   const json = await res.json();
   if (!res.ok) throw new Error(authError(json));
@@ -61,15 +82,26 @@ function toAuth(j, fallbackName) {
 }
 
 async function signIn({ email, password }) {
-  const j = await identity("signInWithPassword", { email, password, returnSecureToken: true });
+  const j = await identity("signInWithPassword", {
+    email,
+    password,
+    returnSecureToken: true,
+  });
   await setAuth(toAuth(j));
   await refreshContacts();
 }
 
 async function signUp({ email, password, name }) {
-  let j = await identity("signUp", { email, password, returnSecureToken: true });
-  j = await identity("update", { idToken: j.idToken, displayName: name, returnSecureToken: true })
-    .then((u) => ({ ...j, ...u, localId: j.localId, email: j.email }));
+  let j = await identity("signUp", {
+    email,
+    password,
+    returnSecureToken: true,
+  });
+  j = await identity("update", {
+    idToken: j.idToken,
+    displayName: name,
+    returnSecureToken: true,
+  }).then((u) => ({ ...j, ...u, localId: j.localId, email: j.email }));
   await setAuth(toAuth(j, name));
   await refreshContacts();
 }
@@ -82,11 +114,17 @@ async function validToken() {
   const a = await getAuth();
   if (!a) throw new Error("Not signed in.");
   if (a.expiresAt - 60000 > Date.now()) return a.idToken;
-  const res = await fetch(`https://securetoken.googleapis.com/v1/token?key=${CFG.apiKey}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: a.refreshToken }),
-  });
+  const res = await fetch(
+    `https://securetoken.googleapis.com/v1/token?key=${CFG.apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: a.refreshToken,
+      }),
+    },
+  );
   const j = await res.json();
   if (!res.ok) {
     await signOut();
@@ -105,11 +143,16 @@ async function api(url, options = {}) {
   const token = await validToken();
   const res = await fetch(url, {
     ...options,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
   });
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
-    const err = new Error(j?.error?.message || `Request failed (${res.status})`);
+    const err = new Error(
+      j?.error?.message || `Request failed (${res.status})`,
+    );
     err.code = j?.error?.status || "";
     throw err;
   }
@@ -141,8 +184,11 @@ function encode(c) {
   const str = (v) => ({ stringValue: String(v || "") });
   return {
     fields: {
-      order: str(c.order), note: str(c.note),
-      status: str(c.status), by: str(c.by), uid: str(c.uid),
+      order: str(c.order),
+      note: str(c.note),
+      status: str(c.status),
+      by: str(c.by),
+      uid: str(c.uid),
       hidden: { booleanValue: !!c.hidden },
       ts: { integerValue: String(c.ts) },
       updatedAt: { integerValue: String(c.updatedAt || Date.now()) },
@@ -150,7 +196,16 @@ function encode(c) {
   };
 }
 
-const SHARED_FIELDS = ["order", "note", "status", "by", "uid", "hidden", "ts", "updatedAt"];
+const SHARED_FIELDS = [
+  "order",
+  "note",
+  "status",
+  "by",
+  "uid",
+  "hidden",
+  "ts",
+  "updatedAt",
+];
 
 // updateMask keeps legacy phone/customer/price in Firestore untouched until the admin scrubs them.
 // expect: null = document must not exist yet; string = server updateTime we last saw.
@@ -163,22 +218,29 @@ async function writeDoc(contact, { fields = SHARED_FIELDS, expect } = {}) {
   const all = encode(contact).fields;
   const doc = await api(`${DOCS()}/${encodeURIComponent(contact.id)}?${q}`, {
     method: "PATCH",
-    body: JSON.stringify({ fields: Object.fromEntries(fields.map((f) => [f, all[f]])) }),
+    body: JSON.stringify({
+      fields: Object.fromEntries(fields.map((f) => [f, all[f]])),
+    }),
   });
   return doc?.updateTime || "";
 }
 
 async function fetchOne(id) {
-  const [c] = await mergePrivate([decode(await api(`${DOCS()}/${encodeURIComponent(id)}`))]);
-  await patchCache((items) => { items[id] = c; });
+  const [c] = await mergePrivate([
+    decode(await api(`${DOCS()}/${encodeURIComponent(id)}`)),
+  ]);
+  await patchCache((items) => {
+    items[id] = c;
+  });
   return c;
 }
 
 async function conflictError(cur, a) {
   const label = STATUS_LABEL[cur.status] || cur.status;
-  const msg = cur.uid === a.uid
-    ? `${cur.order} changed since this page loaded (now ${label}). Try again.`
-    : `${cur.order} was already taken by ${cur.by} (${label}). Your change was not saved.`;
+  const msg =
+    cur.uid === a.uid
+      ? `${cur.order} changed since this page loaded (now ${label}). Try again.`
+      : `${cur.order} was already taken by ${cur.by} (${label}). Your change was not saved.`;
   return new Error(msg);
 }
 
@@ -190,7 +252,8 @@ async function getPrivate() {
 async function savePrivate(id, data) {
   const priv = await getPrivate();
   const next = { ...priv[id] };
-  for (const f of PRIVATE_FIELDS) if (data[f] !== undefined) next[f] = String(data[f] || "").trim();
+  for (const f of PRIVATE_FIELDS)
+    if (data[f] !== undefined) next[f] = String(data[f] || "").trim();
   priv[id] = next;
   await chrome.storage.local.set({ [PRIVATE_KEY]: priv });
   return next;
@@ -211,24 +274,40 @@ async function enrich({ order, ...data }) {
   if (!n) return 0;
   priv[id] = { ...cur, ...add };
   await chrome.storage.local.set({ [PRIVATE_KEY]: priv });
-  await patchCache((items) => { if (items[id]) Object.assign(items[id], add); });
+  await patchCache((items) => {
+    if (items[id]) Object.assign(items[id], add);
+  });
   return n;
 }
 
 function openOrder({ url }, sender) {
-  if (!/^https:\/\/admin\.shopify\.com\/store\/[^/]+\/orders\/\d+/.test(url || "")) throw new Error("Bad order link.");
+  if (
+    !/^https:\/\/admin\.shopify\.com\/store\/[^/]+\/orders\/\d+/.test(url || "")
+  )
+    throw new Error("Bad order link.");
   const tab = sender?.tab;
-  return chrome.tabs.create({
-    url,
-    active: true,
-    ...(tab ? { index: tab.index + 1, openerTabId: tab.id, windowId: tab.windowId } : {}),
-  }).then(() => 1);
+  return chrome.tabs
+    .create({
+      url,
+      active: false,
+      ...(tab
+        ? { index: tab.index + 1, openerTabId: tab.id, windowId: tab.windowId }
+        : {}),
+    })
+    .then(() => 1);
 }
 
 // Overlays this device's local customer data onto records from Firestore.
 async function mergePrivate(list) {
   const priv = await getPrivate();
-  return list.map((c) => ({ ...c, phone: "", customer: "", systemPrice: "", watercooled: "", ...priv[c.id] }));
+  return list.map((c) => ({
+    ...c,
+    phone: "",
+    customer: "",
+    systemPrice: "",
+    watercooled: "",
+    ...priv[c.id],
+  }));
 }
 
 // Merges phone/customer/price rows (e.g. from a CSV export) into local storage only.
@@ -248,7 +327,8 @@ async function importPrivate({ rows }) {
   }
   await chrome.storage.local.set({ [PRIVATE_KEY]: priv });
   await patchCache((items) => {
-    for (const id of Object.keys(items)) if (priv[id]) Object.assign(items[id], priv[id]);
+    for (const id of Object.keys(items))
+      if (priv[id]) Object.assign(items[id], priv[id]);
   });
   return count;
 }
@@ -288,7 +368,9 @@ async function changedSince(since) {
       },
     }),
   });
-  return mergePrivate((res || []).filter((r) => r.document).map((r) => decode(r.document)));
+  return mergePrivate(
+    (res || []).filter((r) => r.document).map((r) => decode(r.document)),
+  );
 }
 
 // Incremental: after the first full load, only documents changed since the last sync are read.
@@ -300,27 +382,43 @@ async function doRefresh(force) {
   const startedAt = Date.now();
   if (!cached || !syncedAt || cached.v !== CACHE_VERSION) {
     await chrome.storage.local.set({
-      [CACHE_KEY]: { items: await fullFetch(), fetchedAt: startedAt, v: CACHE_VERSION },
+      [CACHE_KEY]: {
+        items: await fullFetch(),
+        fetchedAt: startedAt,
+        v: CACHE_VERSION,
+      },
       [SYNC_KEY]: startedAt,
     });
     return;
   }
   const changed = await changedSince(syncedAt - SYNC_OVERLAP_MS);
-  const dirty = changed.filter((c) => JSON.stringify(cached.items[c.id]) !== JSON.stringify(c));
+  const dirty = changed.filter(
+    (c) => JSON.stringify(cached.items[c.id]) !== JSON.stringify(c),
+  );
   if (dirty.length) {
     for (const c of dirty) cached.items[c.id] = c;
-    await chrome.storage.local.set({ [CACHE_KEY]: { items: cached.items, fetchedAt: startedAt, v: CACHE_VERSION } });
+    await chrome.storage.local.set({
+      [CACHE_KEY]: {
+        items: cached.items,
+        fetchedAt: startedAt,
+        v: CACHE_VERSION,
+      },
+    });
   }
   await chrome.storage.local.set({ [SYNC_KEY]: startedAt });
 }
 
 function refreshContacts(force = false) {
-  inflight ||= doRefresh(force).finally(() => { inflight = null; });
+  inflight ||= doRefresh(force).finally(() => {
+    inflight = null;
+  });
   return inflight;
 }
 
 async function patchCache(fn) {
-  const cur = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY] || { items: {} };
+  const cur = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY] || {
+    items: {},
+  };
   fn(cur.items);
   await chrome.storage.local.set({ [CACHE_KEY]: cur });
 }
@@ -331,15 +429,22 @@ async function upsert(input) {
   const id = orderKey(input.order);
   if (!id) throw new Error("Order number is required.");
   const status = STATUSES.includes(input.status) ? input.status : "texted";
-  const cached = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY]?.items?.[id];
+  const cached = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY]
+    ?.items?.[id];
   // Callers pass what the user was looking at; fall back to the cache when they don't.
-  let expect = input.expect !== undefined ? input.expect : cached ? cached.updateTime : null;
+  let expect =
+    input.expect !== undefined
+      ? input.expect
+      : cached
+        ? cached.updateTime
+        : null;
   // The record the precondition guarantees we're replacing (null = brand new order).
   let prev = expect === null ? null : cached;
   if (expect !== null && (!expect || cached?.updateTime !== expect)) {
     // Cached before updateTime was tracked, or the cache moved on: compare against the live doc.
     const fresh = await fetchOne(id);
-    const stale = expect ? fresh.updateTime !== expect
+    const stale = expect
+      ? fresh.updateTime !== expect
       : cached && (fresh.status !== cached.status || fresh.uid !== cached.uid);
     if (stale) throw await conflictError(fresh, a);
     prev = fresh;
@@ -348,11 +453,17 @@ async function upsert(input) {
   const now = Date.now();
   // The original texter keeps the order when a teammate changes its status; only a hidden
   // (removed) record can be claimed by someone else.
-  const owner = prev && !prev.hidden ? prev : { by: a.name, uid: a.uid, ts: now, note: "" };
+  const owner =
+    prev && !prev.hidden ? prev : { by: a.name, uid: a.uid, ts: now, note: "" };
   const contact = {
-    id, order: String(input.order).trim(),
-    note: input.note ?? owner.note ?? "", status,
-    by: owner.by, uid: owner.uid, ts: owner.ts, updatedAt: now,
+    id,
+    order: String(input.order).trim(),
+    note: input.note ?? owner.note ?? "",
+    status,
+    by: owner.by,
+    uid: owner.uid,
+    ts: owner.ts,
+    updatedAt: now,
   };
   try {
     contact.updateTime = await writeDoc(contact, { expect });
@@ -361,32 +472,63 @@ async function upsert(input) {
     throw await conflictError(await fetchOne(id), a);
   }
   const priv = await savePrivate(id, input);
-  const full = { phone: "", customer: "", systemPrice: "", watercooled: "", ...priv, ...contact };
-  await patchCache((items) => { items[id] = full; });
+  const full = {
+    phone: "",
+    customer: "",
+    systemPrice: "",
+    watercooled: "",
+    ...priv,
+    ...contact,
+  };
+  await patchCache((items) => {
+    items[id] = full;
+  });
 }
 
 // Customer details live only on this device, so editing them never writes to Firestore.
-async function updateDetails({ id, phone, customer, systemPrice, watercooled }) {
-  const cur = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY]?.items?.[id];
+async function updateDetails({
+  id,
+  phone,
+  customer,
+  systemPrice,
+  watercooled,
+}) {
+  const cur = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY]?.items?.[
+    id
+  ];
   if (!cur) throw new Error("Order not found. Refresh and try again.");
-  const priv = await savePrivate(id, { phone, customer, systemPrice, watercooled: watercooled || "" });
-  await patchCache((items) => { items[id] = { ...items[id], ...priv }; });
+  const priv = await savePrivate(id, {
+    phone,
+    customer,
+    systemPrice,
+    watercooled: watercooled || "",
+  });
+  await patchCache((items) => {
+    items[id] = { ...items[id], ...priv };
+  });
 }
 
 // Soft delete: the record stays so the order still shows as contacted on Shopify.
 // Only hidden/updatedAt are written, so a teammate's newer status is never reverted.
 async function remove(id) {
-  const cur = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY]?.items?.[id];
+  const cur = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY]?.items?.[
+    id
+  ];
   if (!cur) throw new Error("Order not found. Refresh and try again.");
   const contact = { ...cur, hidden: true, updatedAt: Date.now() };
-  contact.updateTime = await writeDoc(contact, { fields: ["hidden", "updatedAt"] });
-  await patchCache((items) => { items[id] = contact; });
+  contact.updateTime = await writeDoc(contact, {
+    fields: ["hidden", "updatedAt"],
+  });
+  await patchCache((items) => {
+    items[id] = contact;
+  });
 }
 
 // Admin only: deletes phone/customer/price from every Firestore document.
 async function scrub() {
   const a = await getAuth();
-  if (a?.email?.toLowerCase() !== CFG.adminEmail) throw new Error("Not allowed.");
+  if (a?.email?.toLowerCase() !== CFG.adminEmail)
+    throw new Error("Not allowed.");
   const parent = DOCS().replace(/\/[^/]+$/, "");
   const writes = [];
   let pageToken = "";
@@ -395,7 +537,10 @@ async function scrub() {
     if (pageToken) q.set("pageToken", pageToken);
     const j = await api(`${DOCS()}?${q}`);
     for (const d of j.documents || []) {
-      writes.push({ update: { name: d.name, fields: {} }, updateMask: { fieldPaths: PRIVATE_FIELDS } });
+      writes.push({
+        update: { name: d.name, fields: {} },
+        updateMask: { fieldPaths: PRIVATE_FIELDS },
+      });
     }
     pageToken = j.nextPageToken || "";
   } while (pageToken);
@@ -409,7 +554,15 @@ async function scrub() {
 
 // ---------- messaging / polling ----------
 const handlers = {
-  signIn, signUp, signOut, upsert, updateDetails, scrub, importPrivate, enrich, openOrder,
+  signIn,
+  signUp,
+  signOut,
+  upsert,
+  updateDetails,
+  scrub,
+  importPrivate,
+  enrich,
+  openOrder,
   remove: ({ id }) => remove(id),
   refresh: (p) => refreshContacts(!!p?.force),
 };
@@ -425,7 +578,9 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
 });
 
 function setupAlarm() {
-  chrome.alarms.create("wt-poll", { periodInMinutes: Math.max(0.5, CFG.pollSeconds / 60) });
+  chrome.alarms.create("wt-poll", {
+    periodInMinutes: Math.max(0.5, CFG.pollSeconds / 60),
+  });
 }
 chrome.runtime.onInstalled.addListener(setupAlarm);
 chrome.runtime.onStartup.addListener(setupAlarm);
@@ -436,5 +591,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (state !== "active") return;
   if (await getAuth()) refreshContacts(true).catch(() => {});
 });
-chrome.runtime.onInstalled.addListener(() => chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }));
-chrome.runtime.onStartup.addListener(() => chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }));
+chrome.runtime.onInstalled.addListener(() =>
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }),
+);
+chrome.runtime.onStartup.addListener(() =>
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }),
+);
