@@ -276,7 +276,7 @@ chrome.runtime.onStartup.addListener(setupAlarm);
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== "wt-poll") return;
   // Skip background polls while the user is away; the next page load or panel open catches up.
-  const state = await chrome.idle.queryState(300);
+  const state = chrome.idle ? await chrome.idle.queryState(300) : "active";
   if (state !== "active") return;
   if (await getAuth()) refreshContacts(true).catch(() => {});
 });
