@@ -6,22 +6,24 @@ const AUTH_KEY = "wtAuth";
 const DRAFT_KEY = "wtDraft";
 const STATUSES = [
   "texted",
-  "replied",
   "agreed",
   "declined",
-  "none",
   "paid",
+  "none",
   "wrong_number_error",
+  "already_has",
 ];
 const STATUS_LABEL = {
   texted: "Texted",
-  replied: "Replied",
   agreed: "Agreed",
   declined: "Declined",
   none: "No answer",
   paid: "Paid",
   wrong_number_error: "Wrong number/error",
+  already_has: "Already Has",
 };
+
+const TAB_LABEL = { none: "No answer", wrong_number_error: "Wrong #" };
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -44,6 +46,7 @@ const els = {
   order: $("order"),
   name: $("name"),
   systemPrice: $("systemPrice"),
+  watercooled: $("watercooled"),
   hint: $("hint"),
   error: $("error"),
   clear: $("clear"),
@@ -71,6 +74,7 @@ const PRICES = {
     [12000, 480],
   ],
 };
+const WATERCOOLED_PRICES = { 2: 499, 3: 799 };
 const MAX_PRICED_TOTAL = 12000;
 const MANAGER_NOTE = "{manager to calculate}";
 const priceFor = (years, total) =>
@@ -82,11 +86,17 @@ const priceText = (years, total) => {
   return p === null ? MANAGER_NOTE : `$${p}`;
 };
 
-function buildScript(customer, systemPrice = els.total.value) {
+function buildScript(customer, systemPrice, watercooled = false) {
   const total = parseFloat(String(systemPrice).replace(/[^0-9.]/g, ""));
   const known = Number.isFinite(total);
-  const two = known ? priceText(2, total) : "{2 year}";
-  const three = known ? priceText(3, total) : "{3 year}";
+  const tier = (years) =>
+    watercooled
+      ? `$${WATERCOOLED_PRICES[years]}`
+      : known
+        ? priceText(years, total)
+        : `{${years} year}`;
+  const two = tier(2);
+  const three = tier(3);
   const first = String(customer || "")
     .trim()
     .split(/\s+/)[0];
@@ -100,16 +110,15 @@ Your build already comes with lifetime phone & email support on us. The extended
 Can only add it before it leaves our doors. Would you like to add either of those options on?`;
 }
 
-async function copyScript(customer, button, systemPrice = els.total.value) {
-  await navigator.clipboard.writeText(buildScript(customer, systemPrice));
+async function copyScript(customer, button, systemPrice, watercooled) {
+  await navigator.clipboard.writeText(
+    buildScript(customer, systemPrice, watercooled),
+  );
   const label = button.textContent;
   button.textContent = label === "✉" ? "✓" : "Copied";
   setTimeout(() => {
     button.textContent = label;
   }, 900);
-  const missing = !Number.isFinite(
-    parseFloat(String(systemPrice).replace(/[^0-9.]/g, "")),
-  );
 }
 
 let auth = null;
@@ -259,8 +268,14 @@ function saveDraft() {
     order: els.order.value,
     name: els.name.value,
     systemPrice: els.systemPrice.value,
+    watercooled: els.watercooled.checked,
   };
-  const hasAny = draft.phone || draft.order || draft.name || draft.systemPrice;
+  const hasAny =
+    draft.phone ||
+    draft.order ||
+    draft.name ||
+    draft.systemPrice ||
+    draft.watercooled;
   els.clear.hidden = !hasAny;
   if (hasAny) chrome.storage.local.set({ [DRAFT_KEY]: draft });
   else chrome.storage.local.remove(DRAFT_KEY);
@@ -302,28 +317,35 @@ function renderTabs() {
   const counts = { all: visible.length, mine };
   for (const s of STATUSES)
     counts[s] = visible.filter((e) => e.status === s).length;
-  const defs = [
-    ["all", "All"],
-    ["mine", "Mine"],
-    ...STATUSES.map((s) => [s, STATUS_LABEL[s]]),
-  ];
-  els.tabs.replaceChildren();
-  for (const [key, label] of defs) {
+  const tab = (key, label, full = label) => {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "tab";
+    b.dataset.status = key;
+    b.title = full;
     b.setAttribute("role", "tab");
     b.setAttribute("aria-selected", String(filter === key));
-    b.append(label);
+    b.setAttribute("aria-label", `${full} (${counts[key]})`);
+    const name = document.createElement("span");
+    name.className = "tab-name";
+    name.textContent = label;
     const n = document.createElement("b");
     n.textContent = counts[key];
-    b.append(n);
+    b.append(name, n);
     b.addEventListener("click", () => {
       filter = key;
       render();
     });
-    els.tabs.append(b);
-  }
+    return b;
+  };
+  const main = document.createElement("div");
+  main.className = "tabs-main";
+  main.append(tab("all", "All"), tab("mine", "Me"));
+  const grid = document.createElement("div");
+  grid.className = "tabs-status";
+  for (const s of STATUSES)
+    grid.append(tab(s, TAB_LABEL[s] || STATUS_LABEL[s], STATUS_LABEL[s]));
+  els.tabs.replaceChildren(main, grid);
 }
 
 function copyButton(text, label) {
@@ -411,6 +433,12 @@ function render() {
       price.textContent = `$${Number(e.systemPrice).toLocaleString()}`;
       meta.append(price);
     }
+    if (e.watercooled === "yes") {
+      const wc = document.createElement("span");
+      wc.className = "tag";
+      wc.textContent = "Watercooled";
+      meta.append(wc);
+    }
     if (e.phone) meta.append(copyButton(e.phone, prettyPhone(e.phone)));
     const t = document.createElement("span");
     t.textContent = fmtTime(e.ts);
@@ -432,7 +460,11 @@ function render() {
       chip.append(o);
     }
     chip.addEventListener("change", async () => {
-      const r = await send("upsert", { ...e, status: chip.value });
+      const r = await send("upsert", {
+        ...e,
+        status: chip.value,
+        expect: e.updateTime || "",
+      });
       if (!r.ok) {
         showError(els.error, r.error);
         chip.value = e.status;
@@ -483,6 +515,13 @@ function render() {
       priceIn.inputMode = "decimal";
       priceIn.placeholder = "System price";
       priceIn.value = e.systemPrice || "";
+      const wcLabel = document.createElement("label");
+      wcLabel.className = "toggle";
+      wcLabel.title = "Watercooled pricing: 2-yr $499 · 3-yr $799";
+      const wcIn = document.createElement("input");
+      wcIn.type = "checkbox";
+      wcIn.checked = e.watercooled === "yes";
+      wcLabel.append(wcIn, "Watercooled");
       const save = document.createElement("button");
       save.type = "button";
       save.className = "primary";
@@ -499,6 +538,7 @@ function render() {
           customer: capitalizeName(nameIn.value.trim()),
           phone: phoneIn.value.trim() ? prettyPhone(phoneIn.value) : "",
           systemPrice: priceIn.value,
+          watercooled: wcIn.checked ? "yes" : "",
         });
         if (!r.ok) {
           save.disabled = false;
@@ -514,7 +554,7 @@ function render() {
           else if (k.key === "Escape") closeEdit();
         });
       }
-      form.append(nameIn, phoneIn, priceIn, save, cancel);
+      form.append(nameIn, phoneIn, priceIn, wcLabel, save, cancel);
       row.append(form);
       edit.disabled = true;
       editing = true;
@@ -528,7 +568,7 @@ function render() {
     script.title = "Copy text script";
     script.setAttribute("aria-label", `Copy text script for ${e.order}`);
     script.addEventListener("click", () =>
-      copyScript(e.customer, script, e.systemPrice),
+      copyScript(e.customer, script, e.systemPrice, e.watercooled === "yes"),
     );
 
     side.append(chip, script, edit, del);
@@ -538,7 +578,13 @@ function render() {
 }
 
 // ---------- events ----------
-for (const input of [els.phone, els.order, els.name, els.systemPrice]) {
+for (const input of [
+  els.phone,
+  els.order,
+  els.name,
+  els.systemPrice,
+  els.watercooled,
+]) {
   input.addEventListener("input", () => {
     showError(els.error, "");
     updateHint();
@@ -569,7 +615,9 @@ els.form.addEventListener("submit", async (ev) => {
   if (
     byOrder &&
     !confirm(
-      `${capitalizeName(byOrder.by)} already contacted this order. Overwrite with your contact?`,
+      byOrder.hidden
+        ? `${capitalizeName(byOrder.by)} contacted this order before but removed it. Take it over as yours?`
+        : `${capitalizeName(byOrder.by)} already contacted this order. Mark it Texted? It stays under ${capitalizeName(byOrder.by)}'s name.`,
     )
   )
     return;
@@ -579,7 +627,9 @@ els.form.addEventListener("submit", async (ev) => {
     phone: els.phone.value.trim() ? prettyPhone(els.phone.value) : "",
     customer: capitalizeName(els.name.value.trim()),
     systemPrice: els.systemPrice.value.trim(),
+    watercooled: els.watercooled.checked ? "yes" : "",
     status: "texted",
+    expect: byOrder ? byOrder.updateTime || "" : null,
   });
   if (!r.ok) {
     showError(els.error, r.error);
@@ -602,6 +652,7 @@ els.export.addEventListener("click", () => {
       "Phone",
       "Customer",
       "System price",
+      "Watercooled",
       "Status",
       "Contacted by",
       "Date",
@@ -612,6 +663,7 @@ els.export.addEventListener("click", () => {
       e.phone,
       e.customer,
       e.systemPrice,
+      e.watercooled === "yes" ? "Yes" : "",
       STATUS_LABEL[e.status],
       capitalizeName(e.by),
       new Date(e.ts).toISOString(),
@@ -658,13 +710,17 @@ els.importFile.addEventListener("change", async () => {
   if (!file) return;
   const [head = [], ...body] = parseCsv((await file.text()).replace(/^\uFEFF/, ""));
   const col = (name) => head.findIndex((h) => h.trim().toLowerCase() === name);
-  const idx = { order: col("order"), phone: col("phone"), customer: col("customer"), systemPrice: col("system price") };
+  const idx = { order: col("order"), phone: col("phone"), customer: col("customer"), systemPrice: col("system price"), watercooled: col("watercooled") };
   if (idx.order < 0) return alert("CSV needs an Order column.");
   const rows = body.map((r) => ({
     order: r[idx.order],
     phone: idx.phone < 0 ? "" : r[idx.phone],
     customer: idx.customer < 0 ? "" : r[idx.customer],
     systemPrice: idx.systemPrice < 0 ? "" : r[idx.systemPrice],
+    watercooled:
+      idx.watercooled >= 0 && /^(y|yes|true|1)$/i.test(String(r[idx.watercooled] || "").trim())
+        ? "yes"
+        : "",
   }));
   const r = await send("importPrivate", { rows });
   alert(r.ok ? `Imported ${r.count} rows to this device.` : `Import failed: ${r.error}`);
@@ -716,11 +772,13 @@ for (const s of themeSelects)
   els.order.value = draft.order || "";
   els.name.value = capitalizeName(draft.name || "");
   els.systemPrice.value = draft.systemPrice || "";
+  els.watercooled.checked = !!draft.watercooled;
   els.clear.hidden = !(
     draft.phone ||
     draft.order ||
     draft.name ||
-    draft.systemPrice
+    draft.systemPrice ||
+    draft.watercooled
   );
   await load();
   (auth ? els.order : els.authEmail).focus();

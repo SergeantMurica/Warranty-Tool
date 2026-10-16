@@ -13,12 +13,12 @@
 }
 .wt-badge:not([data-state="new"]) { border: 1px solid rgba(0, 0, 0, 0.25); color: #fff; }
 .wt-badge[data-state="texted"] { background: #1d4ed8; }
-.wt-badge[data-state="replied"] { background: #7c3aed; }
 .wt-badge[data-state="agreed"] { background: #0e9f6e; }
 .wt-badge[data-state="paid"] { background: #15803d; }
 .wt-badge[data-state="declined"] { background: #374151; }
 .wt-badge[data-state="none"] { background: #f59e0b; color: #1f1300; }
 .wt-badge[data-state="wrong_number_error"] { background: #be123c; }
+.wt-badge[data-state="already_has"] { background: #0e7490; }
 .wt-badge:hover { filter: brightness(1.12); }
 
 .wt-menu {

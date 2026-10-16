@@ -4,8 +4,15 @@ const CFG = self.WARRANTY_CONFIG;
 const AUTH_KEY = "wtAuth";
 const CACHE_KEY = "wtContacts";
 const PRIVATE_KEY = "wtPrivate"; // customer name / phone / price: stored only on this device
-const PRIVATE_FIELDS = ["phone", "customer", "systemPrice"];
-const STATUSES = ["texted", "replied", "agreed", "declined", "none", "paid", "wrong_number_error"];
+const PRIVATE_FIELDS = ["phone", "customer", "systemPrice", "watercooled"];
+const STATUSES = ["texted", "agreed", "declined", "paid", "none", "wrong_number_error", "already_has"];
+const STATUS_LABEL = {
+  texted: "Texted", agreed: "Agreed", declined: "Declined",
+  none: "No answer", paid: "Paid", wrong_number_error: "Wrong number/error", already_has: "Already Has",
+};
+// Bumped when cached records change shape (v2: updateTime, v3: legacy "replied" folded into texted).
+const CACHE_VERSION = 3;
+const CONFLICT_CODES = ["ALREADY_EXISTS", "FAILED_PRECONDITION"];
 
 const DOCS = () =>
   `https://firestore.googleapis.com/v1/projects/${CFG.projectId}/databases/(default)/documents/${CFG.collection}`;
@@ -102,7 +109,9 @@ async function api(url, options = {}) {
   });
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
-    throw new Error(j?.error?.message || `Request failed (${res.status})`);
+    const err = new Error(j?.error?.message || `Request failed (${res.status})`);
+    err.code = j?.error?.status || "";
+    throw err;
   }
   return res.status === 204 ? null : res.json();
 }
@@ -118,12 +127,13 @@ function decode(doc) {
     customer: s("customer"),
     systemPrice: s("systemPrice"),
     note: s("note"),
-    status: s("status") || "texted",
+    status: STATUSES.includes(s("status")) ? s("status") : "texted",
     by: s("by"),
     uid: s("uid"),
     hidden: f.hidden?.booleanValue === true,
     ts: Number(f.ts?.integerValue || 0),
     updatedAt: Number(f.updatedAt?.integerValue || 0),
+    updateTime: doc.updateTime || "",
   };
 }
 
@@ -143,29 +153,82 @@ function encode(c) {
 const SHARED_FIELDS = ["order", "note", "status", "by", "uid", "hidden", "ts", "updatedAt"];
 
 // updateMask keeps legacy phone/customer/price in Firestore untouched until the admin scrubs them.
-async function writeDoc(contact) {
+// expect: null = document must not exist yet; string = server updateTime we last saw.
+// Firestore rejects the write if the precondition fails, so a stale view can't overwrite a teammate.
+async function writeDoc(contact, { fields = SHARED_FIELDS, expect } = {}) {
   const q = new URLSearchParams();
-  SHARED_FIELDS.forEach((f) => q.append("updateMask.fieldPaths", f));
-  await api(`${DOCS()}/${encodeURIComponent(contact.id)}?${q}`, {
+  fields.forEach((f) => q.append("updateMask.fieldPaths", f));
+  if (expect === null) q.set("currentDocument.exists", "false");
+  else if (expect) q.set("currentDocument.updateTime", expect);
+  const all = encode(contact).fields;
+  const doc = await api(`${DOCS()}/${encodeURIComponent(contact.id)}?${q}`, {
     method: "PATCH",
-    body: JSON.stringify(encode(contact)),
+    body: JSON.stringify({ fields: Object.fromEntries(fields.map((f) => [f, all[f]])) }),
   });
+  return doc?.updateTime || "";
+}
+
+async function fetchOne(id) {
+  const [c] = await mergePrivate([decode(await api(`${DOCS()}/${encodeURIComponent(id)}`))]);
+  await patchCache((items) => { items[id] = c; });
+  return c;
+}
+
+async function conflictError(cur, a) {
+  const label = STATUS_LABEL[cur.status] || cur.status;
+  const msg = cur.uid === a.uid
+    ? `${cur.order} changed since this page loaded (now ${label}). Try again.`
+    : `${cur.order} was already taken by ${cur.by} (${label}). Your change was not saved.`;
+  return new Error(msg);
 }
 
 async function getPrivate() {
   return (await chrome.storage.local.get(PRIVATE_KEY))[PRIVATE_KEY] || {};
 }
 
+// Only fields present in data are overwritten, so callers that don't know them keep the saved values.
 async function savePrivate(id, data) {
   const priv = await getPrivate();
-  priv[id] = { ...priv[id], ...Object.fromEntries(PRIVATE_FIELDS.map((f) => [f, String(data[f] || "").trim()])) };
+  const next = { ...priv[id] };
+  for (const f of PRIVATE_FIELDS) if (data[f] !== undefined) next[f] = String(data[f] || "").trim();
+  priv[id] = next;
   await chrome.storage.local.set({ [PRIVATE_KEY]: priv });
+  return next;
+}
+
+// Fills blank customer details (scraped from the Shopify order page) without touching typed-in values.
+async function enrich({ order, ...data }) {
+  const id = orderKey(order);
+  if (!id) return 0;
+  const priv = await getPrivate();
+  const cur = priv[id] || {};
+  const add = {};
+  for (const f of PRIVATE_FIELDS) {
+    const v = String(data[f] || "").trim();
+    if (v && !cur[f]) add[f] = v;
+  }
+  const n = Object.keys(add).length;
+  if (!n) return 0;
+  priv[id] = { ...cur, ...add };
+  await chrome.storage.local.set({ [PRIVATE_KEY]: priv });
+  await patchCache((items) => { if (items[id]) Object.assign(items[id], add); });
+  return n;
+}
+
+function openOrder({ url }, sender) {
+  if (!/^https:\/\/admin\.shopify\.com\/store\/[^/]+\/orders\/\d+/.test(url || "")) throw new Error("Bad order link.");
+  const tab = sender?.tab;
+  return chrome.tabs.create({
+    url,
+    active: true,
+    ...(tab ? { index: tab.index + 1, openerTabId: tab.id, windowId: tab.windowId } : {}),
+  }).then(() => 1);
 }
 
 // Overlays this device's local customer data onto records from Firestore.
 async function mergePrivate(list) {
   const priv = await getPrivate();
-  return list.map((c) => ({ ...c, phone: "", customer: "", systemPrice: "", ...priv[c.id] }));
+  return list.map((c) => ({ ...c, phone: "", customer: "", systemPrice: "", watercooled: "", ...priv[c.id] }));
 }
 
 // Merges phone/customer/price rows (e.g. from a CSV export) into local storage only.
@@ -235,9 +298,9 @@ async function doRefresh(force) {
   const cached = store[CACHE_KEY];
   if (!force && cached && Date.now() - syncedAt < MIN_REFRESH_MS) return;
   const startedAt = Date.now();
-  if (!cached || !syncedAt) {
+  if (!cached || !syncedAt || cached.v !== CACHE_VERSION) {
     await chrome.storage.local.set({
-      [CACHE_KEY]: { items: await fullFetch(), fetchedAt: startedAt },
+      [CACHE_KEY]: { items: await fullFetch(), fetchedAt: startedAt, v: CACHE_VERSION },
       [SYNC_KEY]: startedAt,
     });
     return;
@@ -246,7 +309,7 @@ async function doRefresh(force) {
   const dirty = changed.filter((c) => JSON.stringify(cached.items[c.id]) !== JSON.stringify(c));
   if (dirty.length) {
     for (const c of dirty) cached.items[c.id] = c;
-    await chrome.storage.local.set({ [CACHE_KEY]: { items: cached.items, fetchedAt: startedAt } });
+    await chrome.storage.local.set({ [CACHE_KEY]: { items: cached.items, fetchedAt: startedAt, v: CACHE_VERSION } });
   }
   await chrome.storage.local.set({ [SYNC_KEY]: startedAt });
 }
@@ -268,37 +331,55 @@ async function upsert(input) {
   const id = orderKey(input.order);
   if (!id) throw new Error("Order number is required.");
   const status = STATUSES.includes(input.status) ? input.status : "texted";
+  const cached = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY]?.items?.[id];
+  // Callers pass what the user was looking at; fall back to the cache when they don't.
+  let expect = input.expect !== undefined ? input.expect : cached ? cached.updateTime : null;
+  // The record the precondition guarantees we're replacing (null = brand new order).
+  let prev = expect === null ? null : cached;
+  if (expect !== null && (!expect || cached?.updateTime !== expect)) {
+    // Cached before updateTime was tracked, or the cache moved on: compare against the live doc.
+    const fresh = await fetchOne(id);
+    const stale = expect ? fresh.updateTime !== expect
+      : cached && (fresh.status !== cached.status || fresh.uid !== cached.uid);
+    if (stale) throw await conflictError(fresh, a);
+    prev = fresh;
+    expect = fresh.updateTime;
+  }
+  const now = Date.now();
+  // The original texter keeps the order when a teammate changes its status; only a hidden
+  // (removed) record can be claimed by someone else.
+  const owner = prev && !prev.hidden ? prev : { by: a.name, uid: a.uid, ts: now, note: "" };
   const contact = {
-    id, order: String(input.order).trim(), phone: input.phone || "", customer: input.customer || "",
-    systemPrice: String(input.systemPrice || "").trim(),
-    note: input.note || "", status, by: a.name, uid: a.uid, ts: Date.now(), updatedAt: Date.now(),
+    id, order: String(input.order).trim(),
+    note: input.note ?? owner.note ?? "", status,
+    by: owner.by, uid: owner.uid, ts: owner.ts, updatedAt: now,
   };
-  await savePrivate(id, contact);
-  await writeDoc(contact);
-  await patchCache((items) => { items[id] = contact; });
+  try {
+    contact.updateTime = await writeDoc(contact, { expect });
+  } catch (e) {
+    if (!CONFLICT_CODES.includes(e.code)) throw e;
+    throw await conflictError(await fetchOne(id), a);
+  }
+  const priv = await savePrivate(id, input);
+  const full = { phone: "", customer: "", systemPrice: "", watercooled: "", ...priv, ...contact };
+  await patchCache((items) => { items[id] = full; });
 }
 
-async function updateDetails({ id, phone, customer, systemPrice }) {
+// Customer details live only on this device, so editing them never writes to Firestore.
+async function updateDetails({ id, phone, customer, systemPrice, watercooled }) {
   const cur = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY]?.items?.[id];
   if (!cur) throw new Error("Order not found. Refresh and try again.");
-  const contact = {
-    ...cur,
-    phone: String(phone || "").trim(),
-    customer: String(customer || "").trim(),
-    systemPrice: String(systemPrice || "").trim(),
-    updatedAt: Date.now(),
-  };
-  await savePrivate(id, contact);
-  await writeDoc(contact);
-  await patchCache((items) => { items[id] = contact; });
+  const priv = await savePrivate(id, { phone, customer, systemPrice, watercooled: watercooled || "" });
+  await patchCache((items) => { items[id] = { ...items[id], ...priv }; });
 }
 
 // Soft delete: the record stays so the order still shows as contacted on Shopify.
+// Only hidden/updatedAt are written, so a teammate's newer status is never reverted.
 async function remove(id) {
   const cur = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY]?.items?.[id];
   if (!cur) throw new Error("Order not found. Refresh and try again.");
   const contact = { ...cur, hidden: true, updatedAt: Date.now() };
-  await writeDoc(contact);
+  contact.updateTime = await writeDoc(contact, { fields: ["hidden", "updatedAt"] });
   await patchCache((items) => { items[id] = contact; });
 }
 
@@ -328,15 +409,16 @@ async function scrub() {
 
 // ---------- messaging / polling ----------
 const handlers = {
-  signIn, signUp, signOut, upsert, updateDetails, scrub, importPrivate,
+  signIn, signUp, signOut, upsert, updateDetails, scrub, importPrivate, enrich, openOrder,
   remove: ({ id }) => remove(id),
   refresh: (p) => refreshContacts(!!p?.force),
 };
 
-chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
+chrome.runtime.onMessage.addListener((msg, sender, respond) => {
   const fn = handlers[msg?.type];
   if (!fn) return false;
-  Promise.resolve(fn(msg.payload || msg))
+  Promise.resolve()
+    .then(() => fn(msg.payload || msg, sender))
     .then((count) => respond({ ok: true, count }))
     .catch((e) => respond({ ok: false, error: e.message }));
   return true;
