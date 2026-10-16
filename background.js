@@ -274,7 +274,11 @@ function setupAlarm() {
 chrome.runtime.onInstalled.addListener(setupAlarm);
 chrome.runtime.onStartup.addListener(setupAlarm);
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === "wt-poll" && (await getAuth())) refreshContacts(true).catch(() => {});
+  if (alarm.name !== "wt-poll") return;
+  // Skip background polls while the user is away; the next page load or panel open catches up.
+  const state = await chrome.idle.queryState(300);
+  if (state !== "active") return;
+  if (await getAuth()) refreshContacts(true).catch(() => {});
 });
 chrome.runtime.onInstalled.addListener(() => chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }));
 chrome.runtime.onStartup.addListener(() => chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }));

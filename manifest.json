@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Warranty Upsell Tracker",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Shared team log of who contacted which Shopify orders about extended warranty. Shows the contacter on the Shopify orders list.",
   "permissions": [
     "storage",
     "alarms",
+    "idle",
     "sidePanel"
   ],
   "host_permissions": [
